@@ -11,19 +11,20 @@ Acceptance bar: top-1 hits the expected section ≥ 80% of the time.
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
 import pytest
+
+from app.config import get_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPENDIX = REPO_ROOT / "APPENDIX_A.md"
 TEST_DB = REPO_ROOT / "backend" / "data" / "test_rupeezy.db"
 
 requires_gemini = pytest.mark.skipif(
-    not os.environ.get("GEMINI_API_KEY"),
-    reason="GEMINI_API_KEY not set; skipping live-API retrieval test",
+    not get_settings().gemini_api_key,
+    reason="GEMINI_API_KEY not set in env or .env; skipping live-API retrieval test",
 )
 
 
@@ -78,10 +79,10 @@ def test_retrieval_top1_accuracy() -> None:
         if top_section in expected_sections:
             correct += 1
         else:
-            top3 = ", ".join(f"§{h.chunk.section}" for h in hits)
+            top3 = ", ".join(f"#{h.chunk.section}" for h in hits)
             failures.append(
-                f'  ✗ "{query}"\n      expected one of {expected_sections}, '
-                f"got top-1 §{top_section} (top-3: {top3})"
+                f'  MISS "{query}"\n      expected one of {expected_sections}, '
+                f"got top-1 #{top_section} (top-3: {top3})"
             )
 
     accuracy = correct / len(TEST_QUERIES)

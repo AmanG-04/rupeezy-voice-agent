@@ -466,7 +466,7 @@ If 2 builders:
 | Phase | Status | Notes |
 |---|---|---|
 | 0 — Bootstrap | 🟢 done | Repo, backend (FastAPI + tests), frontend (Vite/React/Tailwind), README, LICENSE. `pytest` 3/3 green; `vite build` clean (168KB JS gzipped to 55KB). |
-| 1 — RAG | 🟡 code complete, awaiting live verification | Chunker (H2 + selective H3 splitting), Gemini embeddings client with on-disk cache, SQLite chunk store, top-k cosine retriever, ingest script, CLI probe (`python -m app.rag.cli`), 12-query accuracy test. Dry-run produces 31 chunks (every objection 4.1–4.6 + every edge case 10.1–10.10 retrievable independently). 5/5 chunker unit tests pass. Live retrieval accuracy test gated on `GEMINI_API_KEY` — skipped until key is set. |
+| 1 — RAG | 🟢 done | 31 chunks ingested into SQLite via `gemini-embedding-001` (3072-dim). Live retrieval test: **92% top-1 accuracy** (11/12) on paraphrased English/Hindi/Hinglish queries spanning all 5 objections + fees + eligibility + ops. CLI probe verified (e.g. `"I'm with Zerodha already"` → §4.1 @ 0.732). 9/9 tests green. |
 | 2 — Text agent | ⚪ not started | |
 | 3 — Post-call pipeline | ⚪ not started | |
 | 4 — Persistence | ⚪ not started | |

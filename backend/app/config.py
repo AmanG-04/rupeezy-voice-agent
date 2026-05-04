@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     gemini_chat_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
     gemini_reasoning_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_REASONING_MODEL")
     gemini_embedding_model: str = Field(
-        default="text-embedding-004", alias="GEMINI_EMBEDDING_MODEL"
+        default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL"
     )
     gemini_live_model: str = Field(
         default="gemini-2.5-flash-native-audio", alias="GEMINI_LIVE_MODEL"

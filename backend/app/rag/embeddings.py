@@ -22,7 +22,9 @@ log = logging.getLogger("rupeezy.rag.embeddings")
 _CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "embeddings_cache"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-_EMBED_DIM = 768  # text-embedding-004 dimension
+# gemini-embedding-001 returns 3072-dim by default. (text-embedding-004 was 768
+# but is retired on current API keys.)
+_EMBED_DIM = 3072
 
 
 def _cache_key(model: str, text: str, task_type: str) -> str:
@@ -75,7 +77,10 @@ def _embed_one(text: str, *, task_type: str, model: str) -> list[float]:
     res = genai.embed_content(model=model, content=text, task_type=task_type)
     vec = res["embedding"]
     if len(vec) != _EMBED_DIM:
-        raise RuntimeError(f"Unexpected embedding dim {len(vec)} (expected {_EMBED_DIM})")
+        raise RuntimeError(
+            f"Unexpected embedding dim {len(vec)} (expected {_EMBED_DIM}). "
+            f"If the API model changed, update _EMBED_DIM."
+        )
     return vec
 
 
