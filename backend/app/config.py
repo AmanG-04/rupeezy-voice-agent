@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Gemini ---
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_chat_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
+    gemini_chat_model: str = Field(default="gemini-2.5-flash-lite", alias="GEMINI_CHAT_MODEL")
     gemini_reasoning_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_REASONING_MODEL")
     gemini_embedding_model: str = Field(
         default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL"

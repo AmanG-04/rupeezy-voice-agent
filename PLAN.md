@@ -467,7 +467,7 @@ If 2 builders:
 |---|---|---|
 | 0 — Bootstrap | 🟢 done | Repo, backend (FastAPI + tests), frontend (Vite/React/Tailwind), README, LICENSE. `pytest` 3/3 green; `vite build` clean (168KB JS gzipped to 55KB). |
 | 1 — RAG | 🟢 done | 31 chunks ingested into SQLite via `gemini-embedding-001` (3072-dim). Live retrieval test: **92% top-1 accuracy** (11/12) on paraphrased English/Hindi/Hinglish queries spanning all 5 objections + fees + eligibility + ops. CLI probe verified (e.g. `"I'm with Zerodha already"` → §4.1 @ 0.732). 9/9 tests green. |
-| 2 — Text agent | ⚪ not started | |
+| 2 — Text agent | 🟢 done | Full conversation engine + SSE-streaming `POST /api/conversations/{id}/turn` + chat UI page (live token streaming, language badge, end-call, Ctrl+L reset). System prompt is layered: persona+compliance / always-on Appendix sections / per-turn RAG. Defensive cleanup strips any model-emitted `(English)` annotations across stream chunks. Switched chat model from `gemini-2.5-flash` → `gemini-2.5-flash-lite` for free-tier RPM headroom. **Live demo:** all 4 turns of the English MFD scenario passed with bot disclosure, real numbers, proactive fee disclosure (§3.1), and zero compliance violations — see `demo_transcripts/phase2.md`. 11/11 tests green (9 non-agent + 2 live agent compliance tests). |
 | 3 — Post-call pipeline | ⚪ not started | |
 | 4 — Persistence | ⚪ not started | |
 | 5 — Dashboard | ⚪ not started | |

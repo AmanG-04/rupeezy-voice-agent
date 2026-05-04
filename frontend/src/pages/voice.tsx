@@ -1,4 +1,4 @@
-import { PlaceholderPage } from './chat';
+import { PlaceholderPage } from '../components/Placeholder';
 
 export default function VoicePage() {
   return (

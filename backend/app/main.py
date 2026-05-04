@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.agent.routes import router as agent_router
 from app.config import get_settings
 
 settings = get_settings()
@@ -73,5 +74,8 @@ async def version() -> dict[str, str]:
         "reasoning_model": settings.gemini_reasoning_model,
         "embedding_model": settings.gemini_embedding_model,
     }
+
+
+app.include_router(agent_router)
 
 
