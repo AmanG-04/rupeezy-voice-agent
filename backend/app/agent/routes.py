@@ -22,6 +22,12 @@ from app.agent.conversation import (
     get_store,
     stream_user_turn,
 )
+from app.scoring.handoff import build_handoff
+from app.scoring.schemas import HandoffRecord
+
+# Per-process cache of handoff records, keyed by conv_id. Phase 4 moves this
+# to Supabase. Phase 3 keeps it in-memory so the dashboard mock works.
+_handoff_cache: dict[str, HandoffRecord] = {}
 
 log = logging.getLogger("rupeezy.agent.routes")
 
@@ -126,10 +132,55 @@ async def turn(conv_id: str, body: TurnRequest):
     return EventSourceResponse(gen())
 
 
-@router.post("/{conv_id}/end", response_model=ConversationDTO)
-async def end_conversation(conv_id: str, body: EndRequest) -> ConversationDTO:
+class EndConversationResponse(BaseModel):
+    conversation: ConversationDTO
+    handoff: HandoffRecord | None = None
+    handoff_error: str | None = None
+
+
+@router.post("/{conv_id}/end", response_model=EndConversationResponse)
+async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationResponse:
+    """End the conversation AND run the post-call pipeline.
+
+    The pipeline is best-effort — if scoring fails (rate limit, model error),
+    the conversation still ends cleanly and the handoff_error field surfaces
+    the reason. Frontend should render the handoff if present, fallback to
+    a "scoring pending" state if not.
+    """
     conv = get_store().end(conv_id, ended_by=body.ended_by)
     if conv is None:
         raise HTTPException(404, f"conversation {conv_id} not found")
-    log.info("ended conversation %s by=%s", conv_id, body.ended_by)
-    return _to_dto(conv)
+
+    handoff: HandoffRecord | None = None
+    handoff_error: str | None = None
+    if conv.messages:
+        try:
+            handoff = await build_handoff(conversation=conv)
+            _handoff_cache[conv_id] = handoff
+            log.info(
+                "ended %s by=%s | bucket=%s confidence=%.2f next=%s",
+                conv_id,
+                body.ended_by,
+                handoff.classification.bucket,
+                handoff.classification.confidence,
+                handoff.next_action.type,
+            )
+        except Exception as e:  # noqa: BLE001
+            handoff_error = f"{type(e).__name__}: {e}"
+            log.exception("handoff scoring failed for %s", conv_id)
+    else:
+        log.info("ended empty conversation %s — no handoff", conv_id)
+
+    return EndConversationResponse(
+        conversation=_to_dto(conv),
+        handoff=handoff,
+        handoff_error=handoff_error,
+    )
+
+
+@router.get("/{conv_id}/handoff", response_model=HandoffRecord)
+async def get_handoff(conv_id: str) -> HandoffRecord:
+    handoff = _handoff_cache.get(conv_id)
+    if handoff is None:
+        raise HTTPException(404, f"no handoff for conversation {conv_id}")
+    return handoff

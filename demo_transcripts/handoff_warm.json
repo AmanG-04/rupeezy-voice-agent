@@ -1,0 +1,57 @@
+{
+  "lead_id": "a7b4e7df8830",
+  "contact": {
+    "name": "Unknown",
+    "phone": "",
+    "language_used": "english"
+  },
+  "call": {
+    "started_at": "2026-05-04T09:46:37.781527+00:00",
+    "ended_at": "2026-05-04T09:47:29.481952+00:00",
+    "duration_sec": 51,
+    "turn_count": 8,
+    "ended_by": "lead"
+  },
+  "classification": {
+    "bucket": "warm",
+    "confidence": 0.9,
+    "signal_breakdown": {
+      "stated_intent": 0.2,
+      "engagement": 0.7,
+      "network_size": 0.4,
+      "objection_pattern": 0.6,
+      "affirmative_cues": 0.5,
+      "deferrals": 0.8
+    },
+    "rationale": "The lead is engaged and asked for specific material to review (comparison sheet) but requested time to think before committing."
+  },
+  "discovery": {
+    "current_role": "advisor",
+    "current_broker": null,
+    "estimated_clients": 12,
+    "estimated_aum_inr": null,
+    "has_nism_series_vii": null
+  },
+  "objections_raised": [
+    {
+      "id": "security_deposit",
+      "raised_at_turn": 4,
+      "resolved": "partial",
+      "notes": "Lead asked about security deposit costs; agent explained the one-time fee and subscription model."
+    },
+    {
+      "id": "think_about_it",
+      "raised_at_turn": 6,
+      "resolved": "true",
+      "notes": "Lead requested a comparison sheet to evaluate the offer before proceeding."
+    }
+  ],
+  "unresolved_questions": [],
+  "next_action": {
+    "type": "whatsapp_link_sent",
+    "scheduled_for": null,
+    "assigned_rm": null
+  },
+  "summary_short": "Financial advisor with 12 clients. Interested in the 100% brokerage model but requested a comparison sheet to evaluate the security deposit and subscription costs. Follow up after sending the requested material to discuss the break-even analysis.",
+  "transcript_url": null
+}

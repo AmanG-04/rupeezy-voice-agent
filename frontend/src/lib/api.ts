@@ -22,6 +22,97 @@ export interface CreateConversationResponse {
   started_at: string;
 }
 
+// ---- Handoff (Phase 3) — must mirror backend/app/scoring/schemas.py ----
+
+export type Bucket = 'hot' | 'warm' | 'cold';
+
+export interface SignalBreakdown {
+  stated_intent: number;
+  engagement: number;
+  network_size: number;
+  objection_pattern: number;
+  affirmative_cues: number;
+  deferrals: number;
+}
+
+export interface Discovery {
+  current_role: 'mfd' | 'advisor' | 'agent' | 'influencer' | 'other' | 'unknown';
+  current_broker?: string | null;
+  estimated_clients?: number | null;
+  estimated_aum_inr?: number | null;
+  has_nism_series_vii?: boolean | null;
+}
+
+export type ObjectionId =
+  | 'existing_broker'
+  | 'not_enough_contacts'
+  | 'client_support'
+  | 'trustworthiness'
+  | 'think_about_it'
+  | 'security_deposit'
+  | 'nism_required'
+  | 'other';
+
+export interface ObjectionRaised {
+  id: ObjectionId;
+  raised_at_turn: number;
+  resolved: 'true' | 'false' | 'partial';
+  notes?: string;
+}
+
+export type NextActionType =
+  | 'warm_transfer'
+  | 'rm_callback'
+  | 'whatsapp_link_sent'
+  | 'nurture_sequence'
+  | 'dnd';
+
+export interface NextAction {
+  type: NextActionType;
+  scheduled_for?: string | null;
+  assigned_rm?: string | null;
+}
+
+export interface Classification {
+  bucket: Bucket;
+  confidence: number;
+  signal_breakdown: SignalBreakdown;
+  rationale: string;
+}
+
+export interface Contact {
+  name: string;
+  phone: string;
+  language_used: string;
+}
+
+export interface CallMeta {
+  started_at: string;
+  ended_at: string | null;
+  duration_sec: number;
+  turn_count: number;
+  ended_by: string;
+}
+
+export interface HandoffRecord {
+  lead_id: string;
+  contact: Contact;
+  call: CallMeta;
+  classification: Classification;
+  discovery: Discovery;
+  objections_raised: ObjectionRaised[];
+  unresolved_questions: string[];
+  next_action: NextAction;
+  summary_short: string;
+  transcript_url?: string | null;
+}
+
+export interface EndConversationResponse {
+  conversation: Conversation;
+  handoff: HandoffRecord | null;
+  handoff_error: string | null;
+}
+
 const BASE = '/api/conversations';
 
 export async function createConversation(): Promise<CreateConversationResponse> {
@@ -39,13 +130,19 @@ export async function getConversation(convId: string): Promise<Conversation> {
 export async function endConversation(
   convId: string,
   endedBy: 'agent' | 'lead' | 'dropped' = 'lead',
-): Promise<Conversation> {
+): Promise<EndConversationResponse> {
   const r = await fetch(`${BASE}/${convId}/end`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ended_by: endedBy }),
   });
   if (!r.ok) throw new Error(`endConversation: ${r.status}`);
+  return r.json();
+}
+
+export async function getHandoff(convId: string): Promise<HandoffRecord> {
+  const r = await fetch(`${BASE}/${convId}/handoff`);
+  if (!r.ok) throw new Error(`getHandoff: ${r.status}`);
   return r.json();
 }
 

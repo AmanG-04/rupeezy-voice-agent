@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import HandoffPanel from '../components/HandoffPanel';
 import {
   type ConversationMessage,
+  type HandoffRecord,
   createConversation,
   endConversation,
   streamTurn,
@@ -11,7 +13,7 @@ interface ChatMessage extends ConversationMessage {
   pending?: boolean;
 }
 
-type Status = 'idle' | 'starting' | 'live' | 'streaming' | 'ended' | 'error';
+type Status = 'idle' | 'starting' | 'live' | 'streaming' | 'ended' | 'error' | 'scoring';
 
 export default function ChatPage() {
   const [convId, setConvId] = useState<string | null>(null);
@@ -19,6 +21,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<HandoffRecord | null>(null);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -52,6 +56,8 @@ export default function ChatPage() {
     setStatus('starting');
     setErrorMsg(null);
     setMessages([]);
+    setHandoff(null);
+    setHandoffError(null);
     try {
       const r = await createConversation();
       setConvId(r.conv_id);
@@ -76,10 +82,15 @@ export default function ChatPage() {
 
   async function endCall() {
     if (!convId) return;
+    setStatus('scoring');
+    setErrorMsg(null);
     try {
-      await endConversation(convId, 'lead');
+      const r = await endConversation(convId, 'lead');
       setStatus('ended');
+      if (r.handoff) setHandoff(r.handoff);
+      if (r.handoff_error) setHandoffError(r.handoff_error);
     } catch (e) {
+      setStatus('error');
       setErrorMsg((e as Error).message);
     }
   }
@@ -173,6 +184,7 @@ export default function ChatPage() {
           <StatusBadge status={status} />
           {status === 'live' || status === 'streaming' ? (
             <button
+              type="button"
               onClick={endCall}
               className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-rupeezy-hot hover:text-rupeezy-hot transition-colors"
             >
@@ -180,6 +192,7 @@ export default function ChatPage() {
             </button>
           ) : null}
           <button
+            type="button"
             onClick={() => void reset()}
             title="Reset (Ctrl+L)"
             className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors"
@@ -203,6 +216,34 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {/* Scoring overlay */}
+      {status === 'scoring' && (
+        <div className="fixed inset-0 z-30 bg-rupeezy-ink/60 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="rounded-xl bg-rupeezy-card border border-slate-700 px-6 py-5 shadow-2xl flex items-center gap-4">
+            <span className="inline-flex gap-1 items-center">
+              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:200ms]" />
+              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:400ms]" />
+            </span>
+            <div className="text-sm text-slate-200">
+              Running post-call pipeline — classifying, summarising, building handoff…
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Handoff side panel */}
+      {handoff && status === 'ended' && (
+        <HandoffPanel handoff={handoff} onClose={() => setHandoff(null)} />
+      )}
+
+      {/* Handoff error banner */}
+      {handoffError && status === 'ended' && !handoff && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 max-w-md text-xs px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-200">
+          Handoff scoring failed: {handoffError}. The conversation is saved.
+        </div>
+      )}
+
       {/* Composer */}
       <footer className="border-t border-slate-800 bg-rupeezy-surface">
         <div className="max-w-3xl mx-auto px-6 py-4">
@@ -225,6 +266,7 @@ export default function ChatPage() {
               rows={2}
             />
             <button
+              type="button"
               onClick={() => void send()}
               disabled={!canSend}
               className="px-5 py-3 rounded-lg bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
@@ -271,6 +313,7 @@ function StatusBadge({ status }: { status: Status }) {
     starting: { label: 'starting', className: 'bg-slate-700 text-slate-300' },
     live: { label: 'live', className: 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50' },
     streaming: { label: 'streaming', className: 'bg-rupeezy-accent/20 text-indigo-300 border border-indigo-700/50' },
+    scoring: { label: 'scoring', className: 'bg-amber-900/40 text-amber-300 border border-amber-700/50' },
     ended: { label: 'ended', className: 'bg-slate-700 text-slate-400' },
     error: { label: 'error', className: 'bg-red-900/40 text-red-300 border border-red-700/50' },
   };

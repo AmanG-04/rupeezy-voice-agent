@@ -1,0 +1,57 @@
+{
+  "lead_id": "80ad74056cc2",
+  "contact": {
+    "name": "Unknown",
+    "phone": "",
+    "language_used": "english"
+  },
+  "call": {
+    "started_at": "2026-05-04T09:48:02.296053+00:00",
+    "ended_at": "2026-05-04T09:48:55.323636+00:00",
+    "duration_sec": 53,
+    "turn_count": 10,
+    "ended_by": "lead"
+  },
+  "classification": {
+    "bucket": "hot",
+    "confidence": 0.95,
+    "signal_breakdown": {
+      "stated_intent": 1.0,
+      "engagement": 0.9,
+      "network_size": 0.8,
+      "objection_pattern": 0.7,
+      "affirmative_cues": 0.8,
+      "deferrals": 0.0
+    },
+    "rationale": "The lead explicitly stated 'Send me the signup link. I want to start onboarding clients this week' in turn 8, meeting the criteria for a hot lead."
+  },
+  "discovery": {
+    "current_role": "mfd",
+    "current_broker": "Zerodha",
+    "estimated_clients": 60,
+    "estimated_aum_inr": null,
+    "has_nism_series_vii": null
+  },
+  "objections_raised": [
+    {
+      "id": "existing_broker",
+      "raised_at_turn": 4,
+      "resolved": "true",
+      "notes": "Lead asked about the split compared to Zerodha; agent clarified the 100% brokerage model."
+    },
+    {
+      "id": "other",
+      "raised_at_turn": 6,
+      "resolved": "true",
+      "notes": "Lead asked about onboarding TAT; agent provided a clear 5-10 day timeline."
+    }
+  ],
+  "unresolved_questions": [],
+  "next_action": {
+    "type": "warm_transfer",
+    "scheduled_for": null,
+    "assigned_rm": null
+  },
+  "summary_short": "MFD with 60 active clients currently at Zerodha. Highly engaged and explicitly requested the signup link to start onboarding this week. Please prioritize the follow-up to assist with the application and NISM certification requirements.",
+  "transcript_url": null
+}

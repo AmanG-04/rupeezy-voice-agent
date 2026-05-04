@@ -1,0 +1,44 @@
+{
+  "lead_id": "27a8cdc8eee2",
+  "contact": {
+    "name": "Unknown",
+    "phone": "",
+    "language_used": "english"
+  },
+  "call": {
+    "started_at": "2026-05-04T09:51:06.374690+00:00",
+    "ended_at": "2026-05-04T09:51:14.546743+00:00",
+    "duration_sec": 8,
+    "turn_count": 4,
+    "ended_by": "lead"
+  },
+  "classification": {
+    "bucket": "cold",
+    "confidence": 1.0,
+    "signal_breakdown": {
+      "stated_intent": 0.0,
+      "engagement": 0.0,
+      "network_size": 0.0,
+      "objection_pattern": 0.0,
+      "affirmative_cues": 0.0,
+      "deferrals": 0.0
+    },
+    "rationale": "The lead explicitly requested to be removed from the calling list in turn 2, constituting a hard rejection."
+  },
+  "discovery": {
+    "current_role": "unknown",
+    "current_broker": null,
+    "estimated_clients": null,
+    "estimated_aum_inr": null,
+    "has_nism_series_vii": null
+  },
+  "objections_raised": [],
+  "unresolved_questions": [],
+  "next_action": {
+    "type": "dnd",
+    "scheduled_for": null,
+    "assigned_rm": null
+  },
+  "summary_short": "The lead requested to be removed from the database immediately. No further action is required as this is a hard rejection.",
+  "transcript_url": null
+}
