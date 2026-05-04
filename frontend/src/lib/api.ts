@@ -146,6 +146,57 @@ export async function getHandoff(convId: string): Promise<HandoffRecord> {
   return r.json();
 }
 
+// ---- Dashboard (Phase 5) ----
+
+export interface Funnel {
+  contacted: number;
+  engaged: number;
+  qualified: number;
+  hot: number;
+  warm: number;
+  cold: number;
+}
+
+export interface LeadRow {
+  conv_id: string;
+  started_at: string;
+  duration_sec: number;
+  bucket: Bucket;
+  confidence: number;
+  next_action: NextActionType;
+  summary_short: string;
+  language_used: string;
+}
+
+export interface LeadDetail {
+  handoff: HandoffRecord;
+  transcript: ConversationMessage[];
+}
+
+const DASH = '/api/dashboard';
+
+export async function getFunnel(): Promise<Funnel> {
+  const r = await fetch(`${DASH}/funnel`);
+  if (!r.ok) throw new Error(`getFunnel: ${r.status}`);
+  return r.json();
+}
+
+export async function listLeads(opts?: { bucket?: Bucket; limit?: number }): Promise<LeadRow[]> {
+  const qs = new URLSearchParams();
+  if (opts?.bucket) qs.set('bucket', opts.bucket);
+  if (opts?.limit) qs.set('limit', String(opts.limit));
+  const q = qs.toString();
+  const r = await fetch(`${DASH}/leads${q ? `?${q}` : ''}`);
+  if (!r.ok) throw new Error(`listLeads: ${r.status}`);
+  return r.json();
+}
+
+export async function getLeadDetail(convId: string): Promise<LeadDetail> {
+  const r = await fetch(`${DASH}/leads/${convId}`);
+  if (!r.ok) throw new Error(`getLeadDetail: ${r.status}`);
+  return r.json();
+}
+
 /**
  * Stream agent reply tokens for a single user turn.
  *
