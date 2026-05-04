@@ -258,3 +258,13 @@ async def stream_user_turn(
         conv.add("assistant", full_text)
     if is_rate_limit:
         log.warning("rate-limited; consider pacing turns or upgrading API tier")
+
+    # Best-effort persistence: write conversation snapshot to the DB. Failures
+    # do not affect the user response — the in-memory store is still authoritative
+    # for the current request.
+    try:
+        from app.db.repo import persist_conversation
+
+        persist_conversation(conv, channel="text")
+    except Exception:  # noqa: BLE001
+        log.exception("failed to persist conversation %s", conv.conv_id)

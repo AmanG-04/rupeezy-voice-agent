@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.agent.routes import router as agent_router
 from app.config import get_settings
+from app.dashboard.routes import router as dashboard_router
 
 settings = get_settings()
 
@@ -33,6 +34,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     log.info("Rupeezy backend starting — version %s", __version__)
     if not settings.gemini_api_key:
         log.warning("GEMINI_API_KEY is not set. RAG and chat will fail until configured.")
+    # Create persistence tables if they don't exist.
+    from app.db.repo import init_db
+
+    init_db()
+    log.info("DB initialised at %s", settings.database_url)
     yield
 
 
@@ -77,5 +83,6 @@ async def version() -> dict[str, str]:
 
 
 app.include_router(agent_router)
+app.include_router(dashboard_router)
 
 

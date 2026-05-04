@@ -76,6 +76,25 @@ def _to_dto(conv: Conversation) -> ConversationDTO:
     )
 
 
+def _row_to_dto(row) -> ConversationDTO:  # type: ignore[no-untyped-def]
+    """Convert a SQLAlchemy ConversationRow to the wire DTO."""
+    return ConversationDTO(
+        conv_id=row.id,
+        started_at=row.started_at.isoformat() if row.started_at else "",
+        ended_at=row.ended_at.isoformat() if row.ended_at else None,
+        ended_by=row.ended_by,
+        language=row.language_used,
+        messages=[
+            MessageDTO(
+                role=m.role,
+                text=m.text,
+                created_at=m.created_at.isoformat() if m.created_at else "",
+            )
+            for m in row.messages
+        ],
+    )
+
+
 # ---------- routes ----------
 
 
@@ -87,16 +106,27 @@ async def create_conversation() -> CreateConversationResponse:
 
 
 @router.get("", response_model=list[ConversationDTO])
-async def list_conversations() -> list[ConversationDTO]:
-    return [_to_dto(c) for c in get_store().list_all()]
+async def list_conversations(bucket: str | None = None, limit: int = 200) -> list[ConversationDTO]:
+    """Persistent list — survives restarts. Optional bucket filter joins on handoff."""
+    from app.db.repo import list_conversation_rows
+
+    rows = list_conversation_rows(bucket=bucket, limit=limit)
+    return [_row_to_dto(r) for r in rows]
 
 
 @router.get("/{conv_id}", response_model=ConversationDTO)
 async def get_conversation(conv_id: str) -> ConversationDTO:
+    # Hot path: in-memory store (current process).
     conv = get_store().get(conv_id)
-    if conv is None:
+    if conv is not None:
+        return _to_dto(conv)
+    # Cold path: rehydrate from DB.
+    from app.db.repo import get_conversation_row
+
+    row = get_conversation_row(conv_id)
+    if row is None:
         raise HTTPException(404, f"conversation {conv_id} not found")
-    return _to_dto(conv)
+    return _row_to_dto(row)
 
 
 @router.post("/{conv_id}/turn")
@@ -151,12 +181,26 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
     if conv is None:
         raise HTTPException(404, f"conversation {conv_id} not found")
 
+    # Always persist the (now-ended) conversation, even if scoring fails below.
+    try:
+        from app.db.repo import persist_conversation
+
+        persist_conversation(conv, channel="text")
+    except Exception:  # noqa: BLE001
+        log.exception("failed to persist conversation %s on /end", conv_id)
+
     handoff: HandoffRecord | None = None
     handoff_error: str | None = None
     if conv.messages:
         try:
             handoff = await build_handoff(conversation=conv)
             _handoff_cache[conv_id] = handoff
+            try:
+                from app.db.repo import persist_handoff
+
+                persist_handoff(handoff)
+            except Exception:  # noqa: BLE001
+                log.exception("failed to persist handoff for %s", conv_id)
             log.info(
                 "ended %s by=%s | bucket=%s confidence=%.2f next=%s",
                 conv_id,
@@ -180,7 +224,16 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
 
 @router.get("/{conv_id}/handoff", response_model=HandoffRecord)
 async def get_handoff(conv_id: str) -> HandoffRecord:
-    handoff = _handoff_cache.get(conv_id)
-    if handoff is None:
+    # Hot path: in-memory cache from the same process that scored the call.
+    cached = _handoff_cache.get(conv_id)
+    if cached is not None:
+        return cached
+    # Cold path: rehydrate from the DB. Survives restarts.
+    from app.db.repo import get_handoff_row
+
+    row = get_handoff_row(conv_id)
+    if row is None:
         raise HTTPException(404, f"no handoff for conversation {conv_id}")
+    handoff = HandoffRecord.model_validate_json(row.payload_json)
+    _handoff_cache[conv_id] = handoff  # warm the cache for subsequent reads
     return handoff
