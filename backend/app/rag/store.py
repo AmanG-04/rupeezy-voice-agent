@@ -45,12 +45,26 @@ def init_db(db_path: Path) -> None:
 
 
 def upsert_chunks(db_path: Path, chunks: list[Chunk], embeddings: np.ndarray) -> int:
-    """Insert or replace chunks + embeddings. Returns row count written."""
+    """Insert or replace chunks + embeddings. Returns row count written.
+
+    Deletes any rows whose chunk_id is no longer in the supplied set, so
+    re-ingesting an edited Appendix doesn't leave stale duplicates around.
+    Chunk IDs are content-hashed, so an edit to a section produces a new ID
+    and the old row would otherwise persist forever.
+    """
     if len(chunks) != len(embeddings):
         raise ValueError(f"chunks/embeddings length mismatch: {len(chunks)} vs {len(embeddings)}")
     init_db(db_path)
+    fresh_ids = {ch.chunk_id for ch in chunks}
     n = 0
     with _connect(db_path) as c:
+        # 1. Delete stale rows.
+        existing = {row[0] for row in c.execute("SELECT chunk_id FROM appendix_chunks")}
+        stale = existing - fresh_ids
+        if stale:
+            placeholders = ",".join("?" * len(stale))
+            c.execute(f"DELETE FROM appendix_chunks WHERE chunk_id IN ({placeholders})", tuple(stale))
+        # 2. Upsert fresh rows.
         for ch, emb in zip(chunks, embeddings, strict=True):
             blob = emb.astype(np.float32).tobytes()
             c.execute(

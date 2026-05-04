@@ -31,6 +31,69 @@ _LEADING_ANNOTATION = re.compile(
     r"^\s*(?:\([^)]{1,30}\)|\[[^\]]{1,30}\])\s*[\n:]?\s*"
 )
 
+# Words that signal the user said something specific enough to warrant
+# spending a Gemini embedding call to retrieve relevant Appendix chunks.
+# Includes English + common Hindi/Hinglish equivalents. Conservative —
+# false positives are cheap (one extra embedding); false negatives skip
+# RAG when we'd actually want it.
+_RAG_TRIGGER_WORDS = {
+    # English question words
+    "why", "how", "what", "when", "where", "who", "which", "whose",
+    # Hindi / Hinglish question words
+    "kaise", "kab", "kaun", "kya", "kitna", "kitne", "kahan",
+    # Objection / fact-bearing verbs the agent must ground on
+    "switch", "broker", "zerodha", "upstox", "angel", "groww", "5paisa",
+    "motilal", "icici", "sharekhan", "kotak",
+    "cost", "fee", "free", "deposit", "subscription", "charge", "price",
+    "joining", "lakh", "rupees", "rupaye", "paisa", "paise",
+    "nism", "exam", "certification", "certificate", "license", "regulation",
+    "support", "help", "issue", "problem", "complaint",
+    "trust", "reliable", "scam", "fraud", "safe", "regulated", "sebi",
+    "client", "clients", "customer", "customers",
+    "payout", "payment", "earn", "earning", "earnings", "income", "commission",
+    "brokerage", "share", "split", "percent", "percentage",
+    "send", "link", "whatsapp", "signup", "sign", "register",
+    "later", "callback", "tomorrow", "evening",
+    # Common multi-word triggers handled via substring below
+}
+
+# Phrases worth retrieving on even if no trigger word matches.
+_RAG_TRIGGER_PHRASES = (
+    "remove my number", "do not call", "stop calling", "don't call",
+    "not interested", "i'll think", "call me later",
+    "think about it", "send me", "ya think",
+)
+
+
+def _should_retrieve(user_text: str, conv: "Conversation") -> bool:
+    """Decide whether to spend an embedding API call on this turn.
+
+    Skip retrieval when the user's message is short and content-free —
+    the system prompt's always-on Appendix sections handle openers,
+    acknowledgments, and small talk just fine.
+    """
+    text = user_text.strip().lower()
+    if not text:
+        return False
+
+    # Long messages almost always have something worth retrieving.
+    if len(text) >= 80:
+        return True
+
+    # Question marks are a strong signal of a fact-bearing question.
+    if "?" in text:
+        return True
+
+    # Trigger words / phrases.
+    if any(p in text for p in _RAG_TRIGGER_PHRASES):
+        return True
+    words = {w.strip(".,!?;:'\"") for w in text.split()}
+    if words & _RAG_TRIGGER_WORDS:
+        return True
+
+    # Short greetings / acknowledgments / silence — skip RAG.
+    return False
+
 log = logging.getLogger("rupeezy.agent")
 
 Role = Literal["user", "assistant"]
@@ -178,12 +241,22 @@ async def stream_user_turn(
 
     conv.add("user", user_text)
 
-    # Retrieve relevant Appendix chunks for this turn.
-    try:
-        hits = retriever.retrieve(user_text, k=k)
-    except Exception as e:  # noqa: BLE001
-        log.warning("retrieval failed: %s — proceeding without retrieved context", e)
-        hits = []
+    # Decide whether to spend an embedding API call on this turn. The system
+    # prompt's always-on chunks (§1, §2, §3, §3.1, §5, §6, §8) already cover
+    # the opener, the spine, the hard facts, the qualification rubric, the
+    # CTAs, and compliance. Per-turn retrieval is only useful when the user
+    # said something specific — an objection, a question, or a fact-bearing
+    # ask. Skipping retrieval on short / low-content turns saves quota +
+    # ~200-500ms latency without hurting reply quality.
+    hits: list = []
+    if _should_retrieve(user_text, conv):
+        try:
+            hits = retriever.retrieve(user_text, k=k)
+        except Exception as e:  # noqa: BLE001
+            log.warning("retrieval failed: %s — proceeding without retrieved context", e)
+            hits = []
+    else:
+        log.info("skipping retrieval (short/low-content turn): %r", user_text[:60])
 
     parts = build_prompt_parts(retriever, retrieved_hits=hits)
     system_instruction = parts.assemble()
@@ -203,10 +276,8 @@ async def stream_user_turn(
 
     response_text_parts: list[str] = []
     is_rate_limit = False
-    # Buffer the first ~80 chars so we can strip a leading "(English)\n" or
-    # "[Aria]:" annotation that may straddle multiple stream chunks.
-    leading_buf = ""
-    leading_flushed = False
+    annotation_stripped = False
+    chunk_count = 0
 
     try:
         # google-generativeai's stream is a sync iterator; we wrap it in async.
@@ -215,27 +286,18 @@ async def stream_user_turn(
             piece = getattr(chunk, "text", "") or ""
             if not piece:
                 continue
-            if not leading_flushed:
-                leading_buf += piece
-                # Only flush once we have enough chars to confidently match
-                # (or not match) a leading annotation, OR a newline appears.
-                if len(leading_buf) < 80 and "\n" not in leading_buf:
+            chunk_count += 1
+            # Strip a leading "(English)\n" / "[Aria]:" annotation only on the
+            # first non-empty chunk. If the model splits the annotation across
+            # multiple chunks (rare), we accept the small leak rather than
+            # buffer (which delays first-token rendering).
+            if not annotation_stripped:
+                piece = _LEADING_ANNOTATION.sub("", piece)
+                annotation_stripped = True
+                if not piece:
                     continue
-                cleaned = _LEADING_ANNOTATION.sub("", leading_buf)
-                leading_flushed = True
-                if cleaned.strip():
-                    response_text_parts.append(cleaned)
-                    yield cleaned
-                continue
             response_text_parts.append(piece)
             yield piece
-
-        # End-of-stream: flush any small buffer that never grew past the threshold.
-        if not leading_flushed and leading_buf:
-            cleaned = _LEADING_ANNOTATION.sub("", leading_buf)
-            if cleaned.strip():
-                response_text_parts.append(cleaned)
-                yield cleaned
     except Exception as e:  # noqa: BLE001
         # Detect rate limit (429) — it has a clear, separate fallback line.
         emsg = str(e)
@@ -254,8 +316,19 @@ async def stream_user_turn(
         yield fallback
 
     full_text = "".join(response_text_parts).strip()
+    log.info(
+        "turn done | conv=%s chunks=%d reply_chars=%d rate_limited=%s",
+        conv_id, chunk_count, len(full_text), is_rate_limit,
+    )
     if full_text:
         conv.add("assistant", full_text)
+    elif not is_rate_limit:
+        # Model returned nothing (safety filter, content blocked, empty stream).
+        # Send a graceful filler so the UI doesn't sit empty forever.
+        log.warning("model returned empty reply; sending filler")
+        filler = "Sorry, could you say that again?"
+        conv.add("assistant", filler)
+        yield filler
     if is_rate_limit:
         log.warning("rate-limited; consider pacing turns or upgrading API tier")
 

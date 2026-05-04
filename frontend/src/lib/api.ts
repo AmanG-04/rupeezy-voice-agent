@@ -235,9 +235,11 @@ export async function streamTurn(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    // Normalise CRLF -> LF as we decode so the rest of the parser only has
+    // to deal with one line ending. sse-starlette emits CRLF per the spec.
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
 
-    // SSE messages are separated by blank lines.
+    // SSE messages are separated by a blank line.
     let split: number;
     while ((split = buffer.indexOf('\n\n')) >= 0) {
       const raw = buffer.slice(0, split);
