@@ -15,9 +15,11 @@ Rupeezy's AP partner program converts only 18% of leads. The product is competit
 | `APPENDIX_A.md` | The agent's source of truth — script, FAQ, hard facts, objection rebuttals (verified against rupeezy.in) |
 | `PROJECT_CONTEXT.md` | Hackathon brief + tech-stack rationale |
 | `PLAN.md` | 13-phase build plan with time caps and acceptance criteria |
+| `ARCHITECTURE.md` | **Diagrams** — system overview, request flows per phase, DB schema, file map |
 | `backend/` | FastAPI + Gemini + RAG + scoring |
 | `frontend/` | Vite + React + Tailwind. Three demo surfaces: text chat, voice, RM dashboard |
 | `scripts/` | Appendix ingestion, demo seed data |
+| `demo_transcripts/` | Captured live runs from each phase (English / Hindi / Hinglish / mid-call switch) |
 
 ## Quick start
 
