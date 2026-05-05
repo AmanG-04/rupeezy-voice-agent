@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { type LeadDetail, getLeadDetail } from '../lib/api';
+import {
+  type LeadDetail,
+  type WhatsappLog,
+  getLeadDetail,
+  getWhatsappLogs,
+} from '../lib/api';
 import HandoffPanel from './HandoffPanel';
 
 /**
@@ -16,12 +21,14 @@ export default function LeadDrawer({
   onClose: () => void;
 }) {
   const [detail, setDetail] = useState<LeadDetail | null>(null);
+  const [whatsappLogs, setWhatsappLogs] = useState<WhatsappLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setDetail(null);
+    setWhatsappLogs([]);
     setError(null);
     getLeadDetail(convId)
       .then((d) => {
@@ -29,6 +36,14 @@ export default function LeadDrawer({
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message);
+      });
+    // WhatsApp logs are non-fatal — render the drawer even if this 404s.
+    getWhatsappLogs(convId)
+      .then((logs) => {
+        if (!cancelled) setWhatsappLogs(logs);
+      })
+      .catch(() => {
+        /* swallow — empty list is the right default */
       });
     return () => {
       cancelled = true;
@@ -124,8 +139,108 @@ export default function LeadDrawer({
             normal inline block by overriding via a wrapper. */}
         <InlineHandoff handoff={detail.handoff} />
       </div>
+
+      {/* Phase 8 — WhatsApp follow-ups. Sits between the handoff payload
+          and the bottom of the drawer; spec asks for a section between
+          Next action and Discovery, but those live inside HandoffPanel
+          (untouchable per Phase 8 constraints), so we surface it here
+          where it's still impossible to miss. */}
+      <WhatsappSection logs={whatsappLogs} />
     </Backdrop>
   );
+}
+
+const TEMPLATE_BADGE: Record<
+  string,
+  { label: string; cls: string }
+> = {
+  hot: {
+    label: 'HOT',
+    cls: 'bg-rupeezy-hot/10 text-rupeezy-hot border-rupeezy-hot/40',
+  },
+  warm: {
+    label: 'WARM',
+    cls: 'bg-rupeezy-warm/10 text-rupeezy-warm border-rupeezy-warm/40',
+  },
+  cold_nurture: {
+    label: 'COLD',
+    cls: 'bg-rupeezy-cold/10 text-rupeezy-cold border-rupeezy-cold/40',
+  },
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  sent_mock: 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50',
+  sent_cloud_api: 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50',
+  failed: 'bg-red-900/30 text-rupeezy-hot border-red-700/50',
+  skipped: 'bg-slate-800/40 text-slate-400 border-slate-700',
+};
+
+function WhatsappSection({ logs }: { logs: WhatsappLog[] }) {
+  return (
+    <div className="px-6 pb-6">
+      <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">
+        📱 WhatsApp
+      </div>
+      {logs.length === 0 ? (
+        <div className="text-sm text-slate-500">
+          No WhatsApp messages dispatched for this lead.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {logs.map((log) => {
+            const tpl =
+              TEMPLATE_BADGE[log.template_id] ?? {
+                label: log.template_id.toUpperCase(),
+                cls: 'bg-slate-800/40 text-slate-300 border-slate-700',
+              };
+            const statusCls =
+              STATUS_BADGE[log.status] ??
+              'bg-slate-800/40 text-slate-300 border-slate-700';
+            return (
+              <div
+                key={log.id}
+                className="bg-rupeezy-card border border-slate-800 rounded-md p-3 space-y-2"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-mono ${tpl.cls}`}
+                  >
+                    {tpl.label}
+                  </span>
+                  <span
+                    className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-mono ${statusCls}`}
+                  >
+                    {log.status}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono ml-auto">
+                    {formatRelative(log.sent_at)}
+                  </span>
+                </div>
+                <div className="whitespace-pre-wrap text-xs text-slate-300 leading-relaxed">
+                  {log.body}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatRelative(iso: string): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const diffMs = Date.now() - t;
+  const sec = Math.max(0, Math.floor(diffMs / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
 }
 
 /** Backdrop that contains a slide-in right drawer + click-outside-to-close. */

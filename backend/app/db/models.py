@@ -135,3 +135,37 @@ class HandoffRow(Base):
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="handoff")
+
+
+class WhatsappLog(Base):
+    """Phase 8 — record of every WhatsApp follow-up dispatched (or skipped).
+
+    Status taxonomy:
+      - ``sent_mock``       : MockSender persisted the rendered template; no
+                              real API call went out. Default for the demo.
+      - ``sent_cloud_api``  : CloudApiSender successfully posted to Meta's
+                              Cloud API (production path; not implemented).
+      - ``failed``          : Send attempted and errored.
+      - ``skipped``         : Sender deliberately did not send (e.g. DND
+                              lead, or a cold lead with no nurture touch).
+                              No DB row is written for skipped — the
+                              returned object exists only in memory.
+    """
+
+    __tablename__ = "whatsapp_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    template_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    to_phone: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="sent_mock")
+    response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,19 +1,26 @@
 """System prompt builder.
 
-The prompt has three layers:
+The prompt has up to four layers:
 
   1. Persona + non-negotiables (always present, fixed)
+  1b. PRIOR CALL CONTEXT (Phase 10, only present if the lead has called before)
   2. Conversation Spine + Hard Facts + Fee Disclosure (always present, from Appendix)
   3. Per-turn retrieved chunks (variable, top-k by query)
 
-Layer 1 + 2 is built once per conversation and cached. Layer 3 is appended every turn.
+Layer 1 + 2 is built once per conversation and cached. Layer 1b varies per call
+(it's tied to the lead, not the turn — but lookup is one cheap SQL query, so we
+fetch it per-turn rather than caching). Layer 3 is appended every turn.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.rag.retriever import Hit, Retriever
+
+if TYPE_CHECKING:
+    from app.agent.lead_memory import LeadContext
 
 
 # ---------- LAYER 1 ----------
@@ -106,6 +113,70 @@ def _load_base_chunks(retriever: Retriever) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+# ---------- LAYER 1b — PRIOR CALL CONTEXT (Phase 10) ----------
+
+
+_DISCOVERY_LABELS = {
+    "current_role": "Role",
+    "current_broker": "Current broker",
+    "estimated_clients": "~Clients",
+    "estimated_aum_inr": "~AUM (INR)",
+    "has_nism_series_vii": "NISM Series VII",
+}
+
+
+def _format_discovery(discovery: dict) -> list[str]:
+    """One-line bullets per known fact. Skip empty / null values."""
+    lines: list[str] = []
+    for key, label in _DISCOVERY_LABELS.items():
+        if key not in discovery:
+            continue
+        val = discovery[key]
+        if val is None or val == "":
+            continue
+        if isinstance(val, bool):
+            val = "yes" if val else "no"
+        lines.append(f"  - {label}: {val}")
+    return lines
+
+
+def _format_lead_context(ctx: "LeadContext") -> str:
+    """Render the prior-call block. Terse — token budget matters here."""
+    lines: list[str] = []
+    lines.append(f"Time since last call: {ctx.time_since_last_call_human}")
+    if ctx.last_bucket:
+        lines.append(f"Last bucket: {ctx.last_bucket}")
+    if ctx.last_call_summary:
+        lines.append(f"Last summary: {ctx.last_call_summary}")
+    if ctx.unresolved_questions:
+        qs = "; ".join(ctx.unresolved_questions)
+        lines.append(f"Unresolved questions: {qs}")
+    if ctx.unresolved_objections:
+        os_ = ", ".join(ctx.unresolved_objections)
+        lines.append(f"Unresolved objections: {os_}")
+    discovery_lines = _format_discovery(ctx.discovery)
+    if discovery_lines:
+        lines.append("Known facts about lead:")
+        lines.extend(discovery_lines)
+
+    facts = "\n".join(lines)
+
+    guidance = (
+        "## How to use this\n\n"
+        "- Open by acknowledging the prior call: \"Last time we spoke, you "
+        "mentioned you wanted to check with your business partner — were you "
+        "able to?\" Adapt the specific reference to the actual unresolved "
+        "question / objection.\n"
+        "- Don't pretend the previous call didn't happen.\n"
+        "- Skip benefits already covered unless the lead asks again.\n"
+        "- Resume from the unresolved objection, not from the opener spine.\n"
+        "- A Warm lead engaging further trends Hot. A Warm lead going "
+        "dismissive trends Cold. Re-score, don't re-classify from scratch."
+    )
+
+    return f"{facts}\n\n{guidance}"
+
+
 # ---------- LAYER 3 ----------
 
 
@@ -123,18 +194,24 @@ def _format_retrieved(hits: list[Hit]) -> str:
 
 @dataclass(slots=True)
 class PromptParts:
-    """The three layers, ready to be assembled by the caller."""
+    """The (up to four) layers, ready to be assembled by the caller."""
 
     persona: str
     base_knowledge: str
     retrieved: str
+    prior_call: str = ""  # empty when no prior call context
 
     def assemble(self) -> str:
         sep = "\n\n" + ("=" * 60) + "\n\n"
-        sections = [
-            f"# PERSONA & NON-NEGOTIABLES\n\n{self.persona}",
-            f"# CORE KNOWLEDGE (Appendix A — always loaded)\n\n{self.base_knowledge}",
-        ]
+        sections = [f"# PERSONA & NON-NEGOTIABLES\n\n{self.persona}"]
+        if self.prior_call:
+            sections.append(
+                "# PRIOR CALL CONTEXT (this lead has spoken with you before)\n\n"
+                f"{self.prior_call}"
+            )
+        sections.append(
+            f"# CORE KNOWLEDGE (Appendix A — always loaded)\n\n{self.base_knowledge}"
+        )
         if self.retrieved:
             sections.append(
                 f"# RETRIEVED CONTEXT (relevant Appendix chunks for this turn)\n\n"
@@ -145,14 +222,24 @@ class PromptParts:
         return sep.join(sections)
 
 
-def build_prompt_parts(retriever: Retriever, retrieved_hits: list[Hit] | None = None) -> PromptParts:
+def build_prompt_parts(
+    retriever: Retriever,
+    retrieved_hits: list[Hit] | None = None,
+    lead_context: "LeadContext | None" = None,
+) -> PromptParts:
     # Dedup retrieved hits against base sections — sending the same chunk
     # twice in one prompt is pure waste. Hits whose section is already in
     # the always-loaded set get filtered out.
     base_set = set(_BASE_SECTIONS)
     filtered_hits = [h for h in (retrieved_hits or []) if h.chunk.section not in base_set]
+
+    prior_call = ""
+    if lead_context is not None and lead_context.prior_call_count > 0:
+        prior_call = _format_lead_context(lead_context)
+
     return PromptParts(
         persona=_PERSONA.strip(),
         base_knowledge=_load_base_chunks(retriever),
         retrieved=_format_retrieved(filtered_hits),
+        prior_call=prior_call,
     )

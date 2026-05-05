@@ -40,9 +40,21 @@ router = APIRouter(prefix="/api/conversations", tags=["agent"])
 # ---------- DTOs ----------
 
 
+class CreateConversationRequest(BaseModel):
+    """Optional body for POST /api/conversations.
+
+    When `lead_id` is present, the engine binds the conversation to that lead
+    and the system-prompt builder pulls cross-call memory from prior completed
+    calls of the same lead (Phase 10).
+    """
+
+    lead_id: str | None = None
+
+
 class CreateConversationResponse(BaseModel):
     conv_id: str
     started_at: str
+    lead_id: str | None = None
 
 
 class TurnRequest(BaseModel):
@@ -102,10 +114,25 @@ def _row_to_dto(row) -> ConversationDTO:  # type: ignore[no-untyped-def]
 
 
 @router.post("", response_model=CreateConversationResponse)
-async def create_conversation() -> CreateConversationResponse:
-    conv = get_store().create()
-    log.info("created conversation %s", conv.conv_id)
-    return CreateConversationResponse(conv_id=conv.conv_id, started_at=conv.started_at)
+async def create_conversation(
+    body: CreateConversationRequest | None = None,
+) -> CreateConversationResponse:
+    """Create a new conversation. Body is optional — pass `{lead_id}` to bind
+    the conversation to a known lead so Phase 10 cross-call memory activates.
+    """
+    store = get_store()
+    lead_id = body.lead_id if body else None
+    if lead_id:
+        conv = store.create_for_lead(lead_id)
+        log.info("created conversation %s for lead %s", conv.conv_id, lead_id)
+    else:
+        conv = store.create()
+        log.info("created conversation %s", conv.conv_id)
+    return CreateConversationResponse(
+        conv_id=conv.conv_id,
+        started_at=conv.started_at,
+        lead_id=conv.lead_id,
+    )
 
 
 @router.get("", response_model=list[ConversationDTO])
@@ -260,6 +287,22 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
             log.exception("handoff scoring failed for %s", conv_id)
     else:
         log.info("ended empty conversation %s — no handoff", conv_id)
+
+    # Phase 8: fire WhatsApp follow-up. Best-effort; never fails /end.
+    # DND leads are filtered inside the sender (see select_template), so we
+    # only invoke it for next-actions where a message is plausibly wanted.
+    if handoff and handoff.next_action.type in (
+        "warm_transfer",
+        "whatsapp_link_sent",
+        "nurture_sequence",
+    ):
+        try:
+            from app.whatsapp.sender import get_sender
+
+            sender = get_sender()
+            await sender.send(handoff)
+        except Exception:  # noqa: BLE001
+            log.exception("whatsapp send failed for %s", conv_id)
 
     return EndConversationResponse(
         conversation=_to_dto(conv),

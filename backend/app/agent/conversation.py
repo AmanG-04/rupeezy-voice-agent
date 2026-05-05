@@ -116,6 +116,9 @@ class Conversation:
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     ended_at: str | None = None
     ended_by: str | None = None  # 'agent' | 'lead' | 'dropped'
+    # Phase 10: when populated, the prompt builder injects prior-call context.
+    # The demo chat path leaves this None; the dialer / batch caller sets it.
+    lead_id: str | None = None
 
     def add(self, role: Role, text: str) -> Message:
         msg = Message(role=role, text=text)
@@ -145,6 +148,15 @@ class ConversationStore:
     def create(self) -> Conversation:
         conv_id = uuid.uuid4().hex[:12]
         c = Conversation(conv_id=conv_id)
+        self._convs[conv_id] = c
+        return c
+
+    def create_for_lead(self, lead_id: str) -> Conversation:
+        """Create a conversation tied to a known lead. Phase 10 cross-call
+        memory triggers automatically for leads that have prior completed calls.
+        """
+        conv_id = uuid.uuid4().hex[:12]
+        c = Conversation(conv_id=conv_id, lead_id=lead_id)
         self._convs[conv_id] = c
         return c
 
@@ -258,7 +270,19 @@ async def stream_user_turn(
     else:
         log.info("skipping retrieval (short/low-content turn): %r", user_text[:60])
 
-    parts = build_prompt_parts(retriever, retrieved_hits=hits)
+    # Phase 10: if this conversation is bound to a known lead, pull cross-call
+    # memory for the prompt. Cheap (one indexed SQL query) and best-effort —
+    # any error here falls back to "no prior context" without breaking the turn.
+    ctx = None
+    if conv.lead_id:
+        try:
+            from app.agent.lead_memory import get_lead_context
+
+            ctx = get_lead_context(conv.lead_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("lead_memory lookup failed for %s: %s", conv.lead_id, e)
+
+    parts = build_prompt_parts(retriever, retrieved_hits=hits, lead_context=ctx)
     system_instruction = parts.assemble()
 
     settings = get_settings()

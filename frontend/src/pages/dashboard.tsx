@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import FunnelHeader from '../components/FunnelHeader';
 import LeadsTable from '../components/LeadsTable';
 import LeadDrawer from '../components/LeadDrawer';
+import UploadLeadsModal from '../components/UploadLeadsModal';
 import { type Bucket, type Funnel, type LeadRow, getFunnel, listLeads } from '../lib/api';
 
 const BUCKET_FILTERS: Array<{ key: 'all' | Bucket; label: string }> = [
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -73,6 +75,14 @@ export default function DashboardPage() {
               Conversion funnel · qualified leads · handoff context
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setUploadOpen(true)}
+            className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 transition-opacity"
+            title="Upload a CSV of leads and dial them via the agent"
+          >
+            Upload leads
+          </button>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -140,6 +150,14 @@ export default function DashboardPage() {
       {/* Zone 3: Drilldown drawer */}
       {selectedConvId && (
         <LeadDrawer convId={selectedConvId} onClose={() => setSelectedConvId(null)} />
+      )}
+
+      {/* Phase 9: batch upload modal */}
+      {uploadOpen && (
+        <UploadLeadsModal
+          onClose={() => setUploadOpen(false)}
+          onAfterDial={() => void refresh()}
+        />
       )}
     </div>
   );

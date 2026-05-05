@@ -20,6 +20,7 @@ export interface Conversation {
 export interface CreateConversationResponse {
   conv_id: string;
   started_at: string;
+  lead_id?: string | null;
 }
 
 // ---- Handoff (Phase 3) — must mirror backend/app/scoring/schemas.py ----
@@ -115,8 +116,15 @@ export interface EndConversationResponse {
 
 const BASE = '/api/conversations';
 
-export async function createConversation(): Promise<CreateConversationResponse> {
-  const r = await fetch(BASE, { method: 'POST' });
+export async function createConversation(
+  opts?: { leadId?: string },
+): Promise<CreateConversationResponse> {
+  const init: RequestInit = { method: 'POST' };
+  if (opts?.leadId) {
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify({ lead_id: opts.leadId });
+  }
+  const r = await fetch(BASE, init);
   if (!r.ok) throw new Error(`createConversation: ${r.status}`);
   return r.json();
 }
@@ -194,6 +202,86 @@ export async function listLeads(opts?: { bucket?: Bucket; limit?: number }): Pro
 export async function getLeadDetail(convId: string): Promise<LeadDetail> {
   const r = await fetch(`${DASH}/leads/${convId}`);
   if (!r.ok) throw new Error(`getLeadDetail: ${r.status}`);
+  return r.json();
+}
+
+// ---- WhatsApp logs (Phase 8) ----
+
+export type WhatsappTemplateId = 'hot' | 'warm' | 'cold_nurture' | string;
+export type WhatsappStatus =
+  | 'sent_mock'
+  | 'sent_cloud_api'
+  | 'failed'
+  | 'skipped'
+  | string;
+
+export interface WhatsappLog {
+  id: number;
+  template_id: WhatsappTemplateId;
+  body: string;
+  to_phone: string;
+  sent_at: string; // ISO 8601
+  status: WhatsappStatus;
+}
+
+export async function getWhatsappLogs(convId: string): Promise<WhatsappLog[]> {
+  const r = await fetch(`${DASH}/leads/${convId}/whatsapp`);
+  if (!r.ok) throw new Error(`getWhatsappLogs: ${r.status}`);
+  return r.json();
+}
+
+// ---- Phase 9: batch upload + dialer queue ----
+
+export interface BatchUploadResponse {
+  inserted: number;
+  skipped_duplicates: number;
+  errors: string[];
+}
+
+export interface QueuedLead {
+  lead_id: string;
+  name: string;
+  phone: string;
+  language_pref: string;
+  status: 'queued' | 'contacting' | 'completed' | 'failed';
+  conv_id: string | null;
+  bucket: Bucket | null;
+}
+
+export interface QueueResponse {
+  queued: QueuedLead[];
+}
+
+export interface DialNextResponse {
+  idle?: boolean;
+  lead_id?: string;
+  conv_id?: string;
+  name?: string;
+  phone?: string;
+  bucket?: Bucket;
+  confidence?: number;
+  next_action?: NextActionType;
+  status?: string;
+  error?: string;
+}
+
+export async function uploadLeadsCsv(file: File): Promise<BatchUploadResponse> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await fetch(`${DASH}/leads/batch`, { method: 'POST', body: fd });
+  if (!r.ok) throw new Error(`uploadLeadsCsv: ${r.status}`);
+  return r.json();
+}
+
+export async function getLeadsQueue(): Promise<QueueResponse> {
+  const r = await fetch(`${DASH}/leads/queue`);
+  if (!r.ok) throw new Error(`getLeadsQueue: ${r.status}`);
+  return r.json();
+}
+
+export async function dialNextLead(): Promise<DialNextResponse> {
+  const r = await fetch(`${DASH}/leads/dial-next`, { method: 'POST' });
+  if (!r.ok) throw new Error(`dialNextLead: ${r.status}`);
   return r.json();
 }
 

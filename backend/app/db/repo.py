@@ -18,6 +18,7 @@ from app.db.models import (
     HandoffRow,
     Lead,
     Message,
+    WhatsappLog,
 )
 from app.scoring.schemas import HandoffRecord
 
@@ -65,6 +66,14 @@ def mark_lead_dnd(lead_id: str) -> None:
             lead.dnd = True
 
 
+def find_lead_by_phone(phone: str) -> Lead | None:
+    """Look up a Lead by exact phone match. Used for batch-upload de-duplication."""
+    if not phone:
+        return None
+    with session_scope() as s:
+        return s.query(Lead).filter(Lead.phone == phone).one_or_none()
+
+
 # ---------- Conversation + messages ----------
 
 
@@ -89,12 +98,17 @@ def persist_conversation(conv: InMemConversation, *, channel: str = "text") -> N
     if ended_at and started_at:
         duration_sec = max(0, int((ended_at - started_at).total_seconds()))
 
+    # Phase 10: an in-memory Conversation may carry a lead_id for cross-call
+    # memory. Carry it through on insert. On update, only set it if the row
+    # didn't already have one (don't clobber a value set elsewhere).
+    in_mem_lead_id = getattr(conv, "lead_id", None)
+
     with session_scope() as s:
         existing = s.get(ConversationRow, conv.conv_id)
         if existing is None:
             row = ConversationRow(
                 id=conv.conv_id,
-                lead_id=None,
+                lead_id=in_mem_lead_id,
                 started_at=started_at,
                 ended_at=ended_at,
                 duration_sec=duration_sec,
@@ -110,6 +124,8 @@ def persist_conversation(conv: InMemConversation, *, channel: str = "text") -> N
             existing.duration_sec = duration_sec
             existing.language_used = conv.language or existing.language_used
             existing.ended_by = conv.ended_by or existing.ended_by
+            if existing.lead_id is None and in_mem_lead_id is not None:
+                existing.lead_id = in_mem_lead_id
 
         # Wipe & re-insert messages.
         s.query(Message).filter(Message.conversation_id == conv.conv_id).delete()
@@ -193,6 +209,28 @@ def get_handoff_row(conv_id: str) -> HandoffRow | None:
         )
 
 
+def get_latest_completed_conversation_for_lead(
+    lead_id: str,
+) -> ConversationRow | None:
+    """Return the most recently ended Conversation for `lead_id`, with its
+    HandoffRow eagerly loaded. None if the lead has never completed a call.
+
+    A "completed" conversation is one with `ended_at IS NOT NULL`. In-progress
+    calls are intentionally excluded — we only resurface context from finished
+    prior calls (otherwise a second tab open at the same time would mis-trigger
+    the follow-up opener).
+    """
+    with session_scope() as s:
+        return (
+            s.query(ConversationRow)
+            .options(selectinload(ConversationRow.handoff))
+            .filter(ConversationRow.lead_id == lead_id)
+            .filter(ConversationRow.ended_at.is_not(None))
+            .order_by(ConversationRow.ended_at.desc())
+            .first()
+        )
+
+
 def list_handoff_rows(
     *,
     bucket: str | None = None,
@@ -207,6 +245,36 @@ def list_handoff_rows(
         )
         if bucket:
             stmt = stmt.where(HandoffRow.bucket == bucket)
+        return list(s.scalars(stmt))
+
+
+# ---------- WhatsApp log (Phase 8) ----------
+
+
+def persist_whatsapp_log(log_row: WhatsappLog) -> WhatsappLog:
+    """Insert a WhatsApp log row. Returns the row with `id` populated.
+
+    Caller passes a transient ORM object with the fields filled in
+    (conversation_id, template_id, body, status, ...). We attach it to a
+    fresh session, commit, and refresh so the autoincrement id is visible.
+    """
+    with session_scope() as s:
+        s.add(log_row)
+        s.flush()
+        # Snapshot the autoincrement id while the row is still attached;
+        # session_scope() will commit + close after this block exits.
+        s.refresh(log_row)
+    return log_row
+
+
+def list_logs_for_conversation(conv_id: str) -> list[WhatsappLog]:
+    """All WhatsApp logs for a conversation, oldest first."""
+    with session_scope() as s:
+        stmt = (
+            select(WhatsappLog)
+            .where(WhatsappLog.conversation_id == conv_id)
+            .order_by(WhatsappLog.sent_at.asc(), WhatsappLog.id.asc())
+        )
         return list(s.scalars(stmt))
 
 

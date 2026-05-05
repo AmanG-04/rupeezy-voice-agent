@@ -73,3 +73,6 @@ demo_video/
 *.tmp
 .cache/
 debug_*.txt
+
+# --- Claude Code internal (agent worktrees, etc.) ---
+.claude/
