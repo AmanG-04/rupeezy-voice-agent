@@ -48,13 +48,15 @@ _queue: list[QueuedLead] = []
 
 # Scripted scenario the dialer runs against every lead. Picked to:
 #  - hit the §1 opener path
-#  - exercise discovery (clients count → MFD/advisor signal)
-#  - close on a hot/warm cue ("send me the link")
-# Three turns is enough for the classifier to bucket reliably.
+#  - exercise discovery (advisor + 15 clients in one shot for classifier)
+#  - close with explicit signup cue so the bucket lands HOT consistently
+#
+# Two turns intentionally — the classifier needs <=4 messages and bucketing
+# is determined by the explicit "send me the link" close. Each extra turn
+# is +10-15s of Gemini latency and burns RPM, so we keep this minimal.
 SCRIPT: tuple[str, ...] = (
-    "Hi, who is this?",
-    "I'm a financial advisor with about 15 clients.",
-    "Send me the link, I'm interested.",
+    "Hi, I'm a financial advisor with about 15 clients. What is this about?",
+    "Sounds great — send me the signup link, I'm interested.",
 )
 
 
@@ -124,6 +126,22 @@ async def dial_next() -> dict | None:
             persist_handoff(handoff)
         except Exception:  # noqa: BLE001
             log.exception("dialer: failed to persist handoff for %s", conv.conv_id)
+
+        # Mirror the /end route: fire WhatsApp follow-up best-effort.
+        # DND filtered inside the sender; this is what makes the dashboard's
+        # "📱 WhatsApp" panel populate for dialed leads.
+        if handoff.next_action.type in (
+            "warm_transfer",
+            "whatsapp_link_sent",
+            "nurture_sequence",
+        ):
+            try:
+                from app.whatsapp.sender import get_sender
+
+                sender = get_sender()
+                await sender.send(handoff)
+            except Exception:  # noqa: BLE001
+                log.exception("dialer: whatsapp send failed for %s", conv.conv_id)
 
         lead.bucket = handoff.classification.bucket
         lead.status = "completed"

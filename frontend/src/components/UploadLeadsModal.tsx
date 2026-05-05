@@ -224,32 +224,55 @@ export default function UploadLeadsModal({
           )}
 
           {/* Process queue control */}
-          <div className="flex flex-wrap items-center gap-3">
-            {!processing ? (
-              <button
-                type="button"
-                onClick={() => void startProcessing()}
-                disabled={queuedCount === 0}
-                className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-                title={queuedCount === 0 ? 'No queued leads' : 'Run dial-next every 4s until idle'}
-              >
-                Process queue ▷
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={stopProcessing}
-                className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors"
-              >
-                ■ Stop
-              </button>
-            )}
-            <div className="text-xs text-slate-500 font-mono">
-              {queuedCount} queued · {completedCount} done · {queue.length} total
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {!processing ? (
+                <button
+                  type="button"
+                  onClick={() => void startProcessing()}
+                  disabled={queuedCount === 0}
+                  className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                  title={queuedCount === 0 ? 'No queued leads' : 'Dial each queued lead through the real conversation engine, one at a time.'}
+                >
+                  Process queue ▷
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={stopProcessing}
+                  className="text-xs px-3 py-1.5 rounded-md border border-rupeezy-hot/50 text-rupeezy-hot hover:bg-rupeezy-hot/10 transition-colors"
+                >
+                  ■ Stop after current lead
+                </button>
+              )}
+              <div className="text-xs text-slate-500 font-mono">
+                {queuedCount} queued · {completedCount} done · {queue.length} total
+              </div>
+              {processError && (
+                <span className="text-xs text-rose-300 font-mono">{processError}</span>
+              )}
             </div>
-            {processError && (
-              <span className="text-xs text-rose-300 font-mono">{processError}</span>
-            )}
+
+            {/* Disclaimer + live progress note */}
+            {processing ? (
+              <div className="flex items-center gap-2 text-xs text-rupeezy-warm bg-rupeezy-warm/5 border border-rupeezy-warm/30 rounded-md px-3 py-2">
+                <PulseDot />
+                <span>
+                  Dialing… each lead runs a real ~30s call through Gemini + RAG +
+                  scoring. The dashboard updates as each one completes — you
+                  don't need to watch this.
+                </span>
+              </div>
+            ) : queuedCount > 0 ? (
+              <div className="text-xs text-slate-500 leading-relaxed">
+                Each queued lead becomes a real conversation through the agent
+                ({queuedCount} × ~30s ≈ <span className="text-slate-300 font-mono">
+                  {Math.round(queuedCount * 0.5)}–{queuedCount} min
+                </span>{' '}
+                total). You can close this modal — processing continues in the
+                background and the dashboard updates as leads complete.
+              </div>
+            ) : null}
           </div>
 
           {/* Live queue */}
@@ -285,6 +308,12 @@ export default function UploadLeadsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function PulseDot() {
+  return (
+    <span className="inline-block w-2 h-2 rounded-full bg-rupeezy-warm animate-pulse shrink-0" />
   );
 }
 

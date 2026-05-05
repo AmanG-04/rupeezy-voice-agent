@@ -234,8 +234,17 @@ async def classify_conversation(
         f"structured handoff JSON.\n\n---\n\n{transcript}"
     )
 
+    # Pro has tight free-tier quota and routinely 429s — every fallback round
+    # adds ~5-10s. For the dialer + most demo paths, flash-lite-latest is
+    # plenty for structured-output classification. Override with
+    # CLASSIFIER_MODEL=gemini-2.5-pro if you want the slower/sharper model.
+    import os
+    primary = os.environ.get("CLASSIFIER_MODEL", "gemini-flash-lite-latest").strip()
+    if not primary:
+        primary = settings.gemini_reasoning_model
+
     model = genai.GenerativeModel(
-        settings.gemini_reasoning_model,
+        primary,
         system_instruction=_RUBRIC,
         generation_config={
             "temperature": 0.2,        # this is analysis, not creativity
