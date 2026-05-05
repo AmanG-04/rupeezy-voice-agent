@@ -341,3 +341,100 @@ async def stream_user_turn(
         persist_conversation(conv, channel="text")
     except Exception:  # noqa: BLE001
         log.exception("failed to persist conversation %s", conv.conv_id)
+
+
+# ---------- voice-mode wrapper: text streaming + parallel TTS ----------
+
+# Sentence boundary: ., !, ? followed by whitespace or end-of-text. We also
+# break on commas after a long enough run so a long sentence doesn't delay
+# the first audio.
+_SENTENCE_END_RE = re.compile(r"([.!?])(\s+|$)|([:;])\s+")
+_MIN_SENTENCE_CHARS = 12       # don't TTS one-word fragments
+_LONG_RUN_BREAK = 90           # also break on , when buffer exceeds this
+
+
+def _next_sentence_break(buf: str) -> int:
+    """Return the index *just past* the next sentence-ending punctuation in
+    `buf`, or 0 if no break has appeared yet (meaning we keep buffering).
+    """
+    if len(buf) < _MIN_SENTENCE_CHARS:
+        return 0
+    # Find the earliest .!?:; followed by whitespace.
+    m = _SENTENCE_END_RE.search(buf)
+    if m:
+        return m.end()
+    # Fallback: if the buffer is long, break on the next comma + space.
+    if len(buf) > _LONG_RUN_BREAK:
+        i = buf.find(", ")
+        if i > _MIN_SENTENCE_CHARS:
+            return i + 2
+    return 0
+
+
+# Delivery style cue prepended to TTS calls so Aoede uses warm, salesy prosody.
+# Per Google's docs, you can shape delivery this way without multi-speaker setup.
+_TTS_STYLE_PROMPT = (
+    "Say in a warm, friendly, professional, low-pressure sales tone. "
+    "Speak with genuine warmth and confidence. Use natural pacing"
+)
+
+
+async def stream_user_turn_with_audio(
+    conv_id: str,
+    user_text: str,
+    *,
+    voice: str = "Aoede",
+    k: int = 4,
+) -> AsyncIterator[tuple[str, str | bytes]]:
+    """Voice-mode turn loop.
+
+    Yields a stream of (kind, payload) tuples:
+      ("text", "<chunk>")     — raw text chunk (same as text-mode)
+      ("audio", <wav bytes>)  — synthesized WAV for one sentence
+
+    Sentences are TTS'd as they complete in the LLM stream. The browser plays
+    the audio chunks sequentially while later sentences are still being
+    synthesized — so first audio plays ~1.5–2.5s after the user finishes
+    speaking, instead of waiting for the entire reply.
+    """
+    from app.tts.gemini_tts import synthesize  # local import so text mode stays cheap
+
+    sentence_buf = ""
+    full_text_parts: list[str] = []
+
+    async def _tts(sentence: str) -> bytes:
+        try:
+            return await synthesize(sentence, voice=voice, style_prompt=_TTS_STYLE_PROMPT)
+        except Exception as e:  # noqa: BLE001
+            log.warning("TTS failed on sentence (%d chars): %s", len(sentence), e)
+            return b""
+
+    async for piece in stream_user_turn(conv_id, user_text, k=k):
+        full_text_parts.append(piece)
+        # Always emit the text chunk for the live transcript.
+        yield ("text", piece)
+
+        sentence_buf += piece
+        # Drain any complete sentences out of the buffer.
+        while True:
+            split_at = _next_sentence_break(sentence_buf)
+            if split_at == 0:
+                break
+            sentence = sentence_buf[:split_at].strip()
+            sentence_buf = sentence_buf[split_at:]
+            if sentence:
+                wav = await _tts(sentence)
+                if wav:
+                    yield ("audio", wav)
+
+    # Flush any trailing buffer (no terminal punctuation).
+    tail = sentence_buf.strip()
+    if tail:
+        wav = await _tts(tail)
+        if wav:
+            yield ("audio", wav)
+
+    log.info(
+        "voice turn done | conv=%s chars=%d",
+        conv_id, sum(len(p) for p in full_text_parts),
+    )

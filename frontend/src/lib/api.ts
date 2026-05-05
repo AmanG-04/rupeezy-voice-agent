@@ -277,3 +277,76 @@ function parseSSE(raw: string): { event: string; data: string } | null {
   if (dataLines.length === 0) return null;
   return { event, data: dataLines.join('\n') };
 }
+
+/**
+ * Voice-mode turn: streams BOTH text tokens and base64 WAV audio chunks.
+ *
+ *   event: token  data: {"text": "..."}        — for the live transcript
+ *   event: audio  data: {"wav_b64": "..."}     — Aoede voice, one sentence
+ *   event: done   data: {}
+ *   event: error  data: {"message": "..."}
+ */
+export async function streamTurnAudio(
+  convId: string,
+  userText: string,
+  handlers: {
+    onToken: (text: string) => void;
+    onAudio: (wavB64: string) => void;
+    onDone?: () => void;
+    onError?: (message: string) => void;
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const r = await fetch(`${BASE}/${convId}/turn/audio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ text: userText }),
+    signal,
+  });
+  if (!r.ok || !r.body) {
+    handlers.onError?.(`turn/audio HTTP ${r.status}`);
+    return;
+  }
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+    let split: number;
+    while ((split = buffer.indexOf('\n\n')) >= 0) {
+      const raw = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      const event = parseSSE(raw);
+      if (!event) continue;
+      if (event.event === 'token') {
+        try {
+          const parsed = JSON.parse(event.data) as { text: string };
+          handlers.onToken(parsed.text);
+        } catch {
+          handlers.onToken(event.data);
+        }
+      } else if (event.event === 'audio') {
+        try {
+          const parsed = JSON.parse(event.data) as { wav_b64: string };
+          handlers.onAudio(parsed.wav_b64);
+        } catch {
+          // ignore malformed
+        }
+      } else if (event.event === 'done') {
+        handlers.onDone?.();
+      } else if (event.event === 'error') {
+        try {
+          const parsed = JSON.parse(event.data) as { message: string };
+          handlers.onError?.(parsed.message);
+        } catch {
+          handlers.onError?.(event.data);
+        }
+      }
+    }
+  }
+}

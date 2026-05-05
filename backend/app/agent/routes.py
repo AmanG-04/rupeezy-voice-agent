@@ -17,10 +17,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+import base64
+
 from app.agent.conversation import (
     Conversation,
     get_store,
     stream_user_turn,
+    stream_user_turn_with_audio,
 )
 from app.scoring.handoff import build_handoff
 from app.scoring.schemas import HandoffRecord
@@ -155,6 +158,49 @@ async def turn(conv_id: str, body: TurnRequest):
             return
         except Exception as e:  # noqa: BLE001
             log.exception("turn failed")
+            yield {"event": "error", "data": json.dumps({"message": f"agent error: {e}"})}
+            return
+        yield {"event": "done", "data": "{}"}
+
+    return EventSourceResponse(gen())
+
+
+@router.post("/{conv_id}/turn/audio")
+async def turn_audio(conv_id: str, body: TurnRequest):
+    """SSE stream of agent reply tokens AND audio chunks.
+
+    Emits two event types:
+      event: token  data: {"text": "<chunk>"}              # for live transcript
+      event: audio  data: {"wav_b64": "<base64>"}          # one sentence
+      event: done   data: {}
+      event: error  data: {"message": "..."}
+
+    Audio chunks arrive interleaved with text — frontend should queue them
+    on a Web Audio player and play sequentially while later chunks stream.
+    """
+    conv = get_store().get(conv_id)
+    if conv is None:
+        raise HTTPException(404, f"conversation {conv_id} not found")
+    if conv.ended_at:
+        raise HTTPException(409, f"conversation {conv_id} already ended")
+
+    user_text = body.text.strip()
+    if not user_text:
+        raise HTTPException(400, "empty text")
+
+    async def gen() -> AsyncIterator[dict[str, str]]:
+        try:
+            async for kind, payload in stream_user_turn_with_audio(conv_id, user_text):
+                if kind == "text":
+                    yield {"event": "token", "data": json.dumps({"text": payload})}
+                elif kind == "audio":
+                    b64 = base64.b64encode(payload).decode("ascii")  # type: ignore[arg-type]
+                    yield {"event": "audio", "data": json.dumps({"wav_b64": b64})}
+        except ValueError as e:
+            yield {"event": "error", "data": json.dumps({"message": str(e)})}
+            return
+        except Exception as e:  # noqa: BLE001
+            log.exception("voice turn failed")
             yield {"event": "error", "data": json.dumps({"message": f"agent error: {e}"})}
             return
         yield {"event": "done", "data": "{}"}

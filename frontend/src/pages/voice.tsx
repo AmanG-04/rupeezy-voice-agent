@@ -6,26 +6,22 @@ import {
   type HandoffRecord,
   createConversation,
   endConversation,
-  streamTurn,
+  streamTurnAudio,
 } from '../lib/api';
+import { AudioQueuePlayer } from '../lib/audioPlayer';
 import {
   type SpeechRecognitionLike,
-  cancelSpeech,
   createRecognition,
   isSpeechRecognitionAvailable,
-  isSpeechSynthesisAvailable,
-  loadVoices,
-  pickVoice,
-  speak,
 } from '../lib/speech';
 
 type Status =
   | 'idle'
   | 'starting'
-  | 'listening'    // mic open, user can speak
-  | 'thinking'    // got user utterance, waiting for agent reply
-  | 'speaking'    // agent reply playing
-  | 'scoring'    // /end pipeline running
+  | 'listening'
+  | 'thinking'
+  | 'speaking'
+  | 'scoring'
   | 'ended'
   | 'error'
   | 'unsupported';
@@ -40,6 +36,8 @@ interface VoiceMessage extends ConversationMessage {
   pending?: boolean;
 }
 
+const log = (...args: unknown[]) => console.log('[voice]', ...args);
+
 export default function VoicePage() {
   const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
@@ -48,20 +46,37 @@ export default function VoicePage() {
   const [lang, setLang] = useState<string>('en-IN');
   const [partialText, setPartialText] = useState('');
   const [handoff, setHandoff] = useState<HandoffRecord | null>(null);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const transcriptScrollerRef = useRef<HTMLDivElement>(null);
-  // Locking flag to drop SpeechRecognition results while the agent is talking
-  // (prevents the agent's own voice being treated as user input via mic loopback).
   const isReplyingRef = useRef(false);
+  const convIdRef = useRef<string | null>(null);
+  const statusRef = useRef<Status>('idle');
+  const langRef = useRef<string>('en-IN');
+  const audioPlayerRef = useRef<AudioQueuePlayer | null>(null);
+
+  // Mirror state into refs so the SpeechRecognition handlers (which capture
+  // closures at startup) always see the current values.
+  useEffect(() => {
+    convIdRef.current = convId;
+  }, [convId]);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
 
   // Capability check on mount.
   useEffect(() => {
-    if (!isSpeechRecognitionAvailable() || !isSpeechSynthesisAvailable()) {
+    const recOk = isSpeechRecognitionAvailable();
+    const audioOk = typeof window !== 'undefined' && (
+      'AudioContext' in window || 'webkitAudioContext' in window
+    );
+    log('capability check:', { recognition: recOk, audioContext: audioOk });
+    if (!recOk || !audioOk) {
       setStatus('unsupported');
     }
-    void loadVoices().then(setVoices);
   }, []);
 
   // Auto-scroll on new messages.
@@ -80,8 +95,96 @@ export default function VoicePage() {
       } catch {
         // ignore
       }
-      cancelSpeech();
+      audioPlayerRef.current?.stop();
+      audioPlayerRef.current = null;
     };
+  }, []);
+
+  const dispatchUtterance = useCallback(async (text: string) => {
+    const cid = convIdRef.current;
+    log('dispatchUtterance:', { text, conv_id: cid });
+    if (!cid) {
+      log('no conv_id — aborting');
+      return;
+    }
+    setStatus('thinking');
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', text, created_at: new Date().toISOString() },
+      { role: 'assistant', text: '', created_at: new Date().toISOString(), pending: true },
+    ]);
+
+    // Reset the audio queue for this turn but keep the AudioContext alive
+    // (so the user-gesture grant from startCall persists).
+    if (!audioPlayerRef.current) {
+      audioPlayerRef.current = new AudioQueuePlayer();
+    } else {
+      audioPlayerRef.current.reset();
+    }
+    const player = audioPlayerRef.current;
+
+    let accumulated = '';
+    let firstAudioReceived = false;
+
+    try {
+      await streamTurnAudio(cid, text, {
+        onToken: (chunk) => {
+          accumulated += chunk;
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.role === 'assistant' && last.pending) {
+              next[next.length - 1] = { ...last, text: accumulated };
+            }
+            return next;
+          });
+        },
+        onAudio: (wavB64) => {
+          if (!firstAudioReceived) {
+            firstAudioReceived = true;
+            isReplyingRef.current = true;
+            setStatus('speaking');
+            log('first audio chunk received, switching to speaking');
+          }
+          // Fire-and-forget; player handles its own queue.
+          void player.enqueue(wavB64);
+        },
+        onError: (msg) => {
+          log('streamTurnAudio onError:', msg);
+          setErrorMsg(msg);
+        },
+      });
+      log('streamTurnAudio done, accumulated chars:', accumulated.length);
+    } catch (e) {
+      log('streamTurnAudio threw:', e);
+      setErrorMsg((e as Error).message);
+    } finally {
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === 'assistant' && last.pending) {
+          next[next.length - 1] = { ...last, pending: false };
+        }
+        return next;
+      });
+
+      if (firstAudioReceived) {
+        // Wait for the entire queue to drain, then return to listening.
+        try {
+          await player.drained();
+        } catch {
+          // ignore
+        }
+        log('audio queue drained, returning to listening');
+        isReplyingRef.current = false;
+        if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+          setStatus('listening');
+        }
+      } else if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+        // No audio was generated (e.g. TTS failed silently). Just move on.
+        setStatus('listening');
+      }
+    }
   }, []);
 
   const stopRecognition = useCallback(() => {
@@ -93,19 +196,27 @@ export default function VoicePage() {
   }, []);
 
   const startRecognition = useCallback(() => {
-    const r = createRecognition(lang);
+    const r = createRecognition(langRef.current);
     if (!r) {
+      log('createRecognition returned null');
       setStatus('unsupported');
       setErrorMsg('SpeechRecognition is not available in this browser. Use Chrome or Edge.');
       return;
     }
     recognitionRef.current = r;
+    log('SpeechRecognition created, lang:', langRef.current);
 
     let pendingFinal = '';
+
+    r.onstart = () => log('recognition: onstart');
+    r.onspeechstart = () => log('recognition: speech detected');
+    r.onspeechend = () => log('recognition: speech ended');
+
     r.onresult = (e) => {
-      // If the agent is currently speaking, ignore mic results to stop the
-      // mic from picking up the agent's own voice.
-      if (isReplyingRef.current) return;
+      if (isReplyingRef.current) {
+        log('result ignored (reply in progress)');
+        return;
+      }
 
       let interim = '';
       let final = '';
@@ -119,54 +230,76 @@ export default function VoicePage() {
         }
       }
       setPartialText(interim);
-      pendingFinal += final;
-      // When we get a final segment AND a meaningful chunk of text, dispatch.
-      if (final.trim() && pendingFinal.trim().length > 1) {
+      if (final) {
+        pendingFinal += final;
+        log('recognition: final segment:', JSON.stringify(final), 'pendingFinal:', JSON.stringify(pendingFinal));
+      }
+
+      // Dispatch when we have a final segment with non-trivial content.
+      if (final.trim() && pendingFinal.trim().length >= 2) {
         const utterance = pendingFinal.trim();
         pendingFinal = '';
         setPartialText('');
-        void onUserUtterance(utterance);
+        void dispatchUtterance(utterance);
       }
     };
+
     r.onerror = (e) => {
-      // 'no-speech' fires after silence — not actually an error.
+      log('recognition: error', e.error, e.message ?? '');
       if (e.error === 'no-speech' || e.error === 'aborted') return;
-      console.warn('SpeechRecognition error:', e.error, e.message);
+      if (e.error === 'not-allowed') {
+        setErrorMsg('Microphone permission denied. Allow mic access and try again.');
+        setStatus('error');
+      } else if (e.error === 'audio-capture') {
+        setErrorMsg('No microphone found.');
+        setStatus('error');
+      }
     };
+
     r.onend = () => {
-      // Auto-restart if the call is still live (browser tends to stop after ~60s of silence).
+      log('recognition: onend, current status:', statusRef.current);
+      // Auto-restart if the call is still live (browser tends to stop after silence).
       if (statusRef.current === 'listening' || statusRef.current === 'speaking') {
         try {
           r.start();
-        } catch {
-          // already running
+          log('recognition: auto-restarted');
+        } catch (err) {
+          log('recognition: restart failed', err);
         }
       }
     };
+
     try {
       r.start();
+      log('recognition: started');
     } catch (e) {
-      console.warn('failed to start recognition:', e);
+      log('recognition: start threw', e);
     }
-  }, [lang]);
-
-  // Status mirror for callbacks (avoid stale closures inside SpeechRecognition handlers).
-  const statusRef = useRef<Status>('idle');
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
+  }, []);
 
   async function startCall() {
     setStatus('starting');
     setErrorMsg(null);
     setMessages([]);
     setHandoff(null);
+    // Construct the AudioQueuePlayer here, on the user-gesture click, so the
+    // browser grants the AudioContext permission to play sound. Constructing
+    // it later (e.g. inside dispatchUtterance) leaves the context suspended.
+    if (!audioPlayerRef.current) {
+      audioPlayerRef.current = new AudioQueuePlayer();
+    }
     try {
       const r = await createConversation();
+      log('conversation created:', r.conv_id);
       setConvId(r.conv_id);
+      convIdRef.current = r.conv_id;          // set ref synchronously
       setStatus('listening');
+      statusRef.current = 'listening';        // set ref synchronously
+      // Start recognition AFTER convId is in the ref so the first onresult
+      // can read it.
       startRecognition();
     } catch (e) {
+      log('startCall error:', e);
       setStatus('error');
       setErrorMsg((e as Error).message);
     }
@@ -174,12 +307,17 @@ export default function VoicePage() {
 
   async function endCall() {
     if (!convId) return;
+    log('ending call:', convId);
     stopRecognition();
-    cancelSpeech();
+    audioPlayerRef.current?.stop();
+    audioPlayerRef.current = null;
+    isReplyingRef.current = false;
     setStatus('scoring');
+    statusRef.current = 'scoring';
     try {
       const r = await endConversation(convId, 'lead');
       setStatus('ended');
+      statusRef.current = 'ended';
       if (r.handoff) setHandoff(r.handoff);
     } catch (e) {
       setStatus('error');
@@ -187,73 +325,15 @@ export default function VoicePage() {
     }
   }
 
-  async function onUserUtterance(text: string) {
-    if (!convId) return;
-    setStatus('thinking');
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', text, created_at: new Date().toISOString() },
-      { role: 'assistant', text: '', created_at: new Date().toISOString(), pending: true },
-    ]);
-
-    let accumulated = '';
-    try {
-      await streamTurn(convId, text, {
-        onToken: (chunk) => {
-          accumulated += chunk;
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant' && last.pending) {
-              next[next.length - 1] = { ...last, text: accumulated };
-            }
-            return next;
-          });
-        },
-        onError: (msg) => {
-          setErrorMsg(msg);
-        },
-      });
-    } catch (e) {
-      setErrorMsg((e as Error).message);
-    } finally {
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant' && last.pending) {
-          next[next.length - 1] = { ...last, pending: false };
-        }
-        return next;
-      });
-      // Speak the full reply.
-      if (accumulated.trim()) {
-        isReplyingRef.current = true;
-        setStatus('speaking');
-        const voice = pickVoice(voices, lang);
-        const u = speak(accumulated, lang, voice);
-        if (u) {
-          u.onend = () => {
-            isReplyingRef.current = false;
-            if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-              setStatus('listening');
-            }
-          };
-          u.onerror = () => {
-            isReplyingRef.current = false;
-            if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-              setStatus('listening');
-            }
-          };
-        } else {
-          // If TTS not available, just go back to listening.
-          isReplyingRef.current = false;
-          setStatus('listening');
-        }
-      } else if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-        setStatus('listening');
-      }
-    }
-  }
+  // Manual fallback: if STT isn't dispatching for some reason (or user wants
+  // to type instead), let them send a typed turn.
+  const [manualText, setManualText] = useState('');
+  const sendManual = () => {
+    const t = manualText.trim();
+    if (!t) return;
+    setManualText('');
+    void dispatchUtterance(t);
+  };
 
   if (status === 'unsupported') {
     return (
@@ -296,6 +376,8 @@ export default function VoicePage() {
             </div>
           </div>
           <select
+            aria-label="Conversation language"
+            title="Conversation language"
             value={lang}
             onChange={(e) => setLang(e.target.value)}
             disabled={status === 'listening' || status === 'speaking' || status === 'thinking'}
@@ -360,6 +442,30 @@ export default function VoicePage() {
           {partialText && (
             <div className="mt-3 px-4 py-2 rounded-lg bg-rupeezy-card border border-slate-800 text-sm text-slate-400 italic max-w-md text-center">
               "{partialText}"
+            </div>
+          )}
+
+          {/* Manual fallback - useful if STT is flaky or user prefers to type */}
+          {(status === 'listening' || status === 'thinking' || status === 'speaking') && (
+            <div className="mt-5 flex gap-2 max-w-md w-full px-6">
+              <input
+                type="text"
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') sendManual();
+                }}
+                placeholder="Or type if mic is flaky…"
+                className="flex-1 text-xs rounded-md bg-rupeezy-card border border-slate-700 px-3 py-2 placeholder:text-slate-600 focus:outline-none focus:border-rupeezy-accent"
+              />
+              <button
+                type="button"
+                onClick={sendManual}
+                disabled={!manualText.trim() || status !== 'listening'}
+                className="text-xs px-3 py-2 rounded-md bg-rupeezy-accent text-white disabled:opacity-30"
+              >
+                Send
+              </button>
             </div>
           )}
         </div>
