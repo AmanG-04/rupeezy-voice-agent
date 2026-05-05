@@ -72,3 +72,4 @@ demo_video/
 *.bak
 *.tmp
 .cache/
+debug_*.txt

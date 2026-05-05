@@ -221,7 +221,7 @@ async def stream_user_turn(
     conv_id: str,
     user_text: str,
     *,
-    k: int = 4,
+    k: int = 2,
 ) -> AsyncIterator[str]:
     """Process one user turn. Yields response token chunks as they stream.
 

@@ -40,6 +40,16 @@ SCENARIOS: dict[str, list[str]] = {
         "Main pehle se Angel One ke saath hoon — what's different?",
         "Achha — security deposit kitna hai aur refundable hai?",
     ],
+    # Mid-call language switch: lead opens in English, switches to Hindi
+    # after rapport is built. Tests Appendix §1 language-matching rule:
+    # the agent must follow the lead, not fight it, and never announce
+    # the switch.
+    "mixed": [
+        "Hi, who is this?",
+        "I'm a financial advisor in Mumbai with about 25 clients.",
+        "Theek hai — ek baat batao, brokerage split kya hai aapka?",
+        "Aur cost? Joining fee aur deposit kitna hai?",
+    ],
 }
 
 
