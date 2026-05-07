@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowLeft, RotateCcw, Square, Send } from 'lucide-react';
 import HandoffPanel from '../components/HandoffPanel';
+import { Brand } from '../components/Brand';
 import {
   type ConversationMessage,
   type HandoffRecord,
@@ -13,7 +15,14 @@ interface ChatMessage extends ConversationMessage {
   pending?: boolean;
 }
 
-type Status = 'idle' | 'starting' | 'live' | 'streaming' | 'ended' | 'error' | 'scoring';
+type Status =
+  | 'idle'
+  | 'starting'
+  | 'live'
+  | 'streaming'
+  | 'ended'
+  | 'error'
+  | 'scoring';
 
 export default function ChatPage() {
   const [convId, setConvId] = useState<string | null>(null);
@@ -26,13 +35,11 @@ export default function ChatPage() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-create conversation on mount.
   useEffect(() => {
     void start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll on new messages / token streaming.
   useEffect(() => {
     scrollerRef.current?.scrollTo({
       top: scrollerRef.current.scrollHeight,
@@ -74,7 +81,7 @@ export default function ChatPage() {
       try {
         await endConversation(convId, 'lead');
       } catch {
-        // ignore — we're starting fresh
+        // ignore — fresh start
       }
     }
     await start();
@@ -104,7 +111,12 @@ export default function ChatPage() {
     setMessages((prev) => [
       ...prev,
       { role: 'user', text, created_at: new Date().toISOString() },
-      { role: 'assistant', text: '', created_at: new Date().toISOString(), pending: true },
+      {
+        role: 'assistant',
+        text: '',
+        created_at: new Date().toISOString(),
+        pending: true,
+      },
     ]);
 
     let accumulated = '';
@@ -165,49 +177,69 @@ export default function ChatPage() {
   const canSend = status === 'live' && input.trim().length > 0;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-rupeezy-ink">
       {/* Header */}
-      <header className="border-b border-slate-800 bg-rupeezy-surface">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-          <Link to="/" className="text-slate-400 hover:text-slate-200 text-sm">
-            ←
+      <header className="border-b border-rupeezy-border-subtle bg-rupeezy-surface/80 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
+          <Link
+            to="/"
+            className="text-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
+            aria-label="Back to home"
+          >
+            <ArrowLeft size={18} />
           </Link>
-          <div className="w-9 h-9 rounded-lg bg-rupeezy-accent flex items-center justify-center font-bold text-white text-sm">
-            A
+          <div className="hidden sm:block">
+            <Brand size="sm" />
           </div>
-          <div className="flex-1">
-            <div className="font-semibold leading-tight">Aria — Rupeezy AI Partner Agent</div>
-            <div className="text-xs text-slate-500 font-mono">
+          <div className="flex-1 min-w-0 ml-1">
+            <div className="font-serif text-base text-rupeezy-fg leading-tight">
+              Aria · Text chat
+            </div>
+            <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-0.5">
               {convId ? `conv ${convId}` : 'starting…'}
             </div>
           </div>
-          <StatusBadge status={status} />
-          {status === 'live' || status === 'streaming' ? (
+          <StatusPill status={status} />
+          {(status === 'live' || status === 'streaming') && (
             <button
               type="button"
               onClick={endCall}
-              className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-rupeezy-hot hover:text-rupeezy-hot transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-hot/40 hover:text-rupeezy-hot transition-colors"
             >
+              <Square size={12} />
               End call
             </button>
-          ) : null}
+          )}
           <button
             type="button"
             onClick={() => void reset()}
             title="Reset (Ctrl+L)"
-            className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
           >
+            <RotateCcw size={12} />
             Reset
           </button>
         </div>
       </header>
 
       {/* Messages */}
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-6 py-8">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-6 py-10">
         <div className="max-w-3xl mx-auto space-y-4">
           {messages.length === 0 && status !== 'starting' && (
-            <div className="text-center text-slate-500 text-sm py-12">
-              Start by greeting Aria — try “Hi, who is this?” or “Hello, kaun bol raha hai?”
+            <div className="text-center py-16">
+              <div className="font-serif text-2xl text-rupeezy-fg mb-2">
+                Start the call
+              </div>
+              <div className="text-sm text-rupeezy-fg-faint">
+                Try{' '}
+                <span className="font-mono text-rupeezy-fg-muted">
+                  Hi, who is this?
+                </span>{' '}
+                or{' '}
+                <span className="font-mono text-rupeezy-fg-muted">
+                  Hello, kaun bol raha hai?
+                </span>
+              </div>
             </div>
           )}
           {messages.map((m, i) => (
@@ -218,34 +250,33 @@ export default function ChatPage() {
 
       {/* Scoring overlay */}
       {status === 'scoring' && (
-        <div className="fixed inset-0 z-30 bg-rupeezy-ink/60 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-          <div className="rounded-xl bg-rupeezy-card border border-slate-700 px-6 py-5 shadow-2xl flex items-center gap-4">
+        <div className="fixed inset-0 z-40 bg-rupeezy-ink/70 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="glass-elevated rounded-xl px-6 py-5 flex items-center gap-4">
             <span className="inline-flex gap-1 items-center">
-              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse" />
-              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:200ms]" />
-              <span className="w-2 h-2 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:400ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-accent animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:200ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-accent animate-pulse [animation-delay:400ms]" />
             </span>
-            <div className="text-sm text-slate-200">
-              Running post-call pipeline — classifying, summarising, building handoff…
+            <div className="text-sm text-rupeezy-fg">
+              Running post-call pipeline — classifying, summarising, building
+              handoff…
             </div>
           </div>
         </div>
       )}
 
-      {/* Handoff side panel */}
       {handoff && status === 'ended' && (
         <HandoffPanel handoff={handoff} onClose={() => setHandoff(null)} />
       )}
 
-      {/* Handoff error banner */}
       {handoffError && status === 'ended' && !handoff && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 max-w-md text-xs px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-200">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 max-w-md text-xs px-4 py-3 rounded-lg bg-rupeezy-warm-faint border border-rupeezy-warm/30 text-rupeezy-warm">
           Handoff scoring failed: {handoffError}. The conversation is saved.
         </div>
       )}
 
       {/* Composer */}
-      <footer className="border-t border-slate-800 bg-rupeezy-surface">
+      <footer className="border-t border-rupeezy-border-subtle bg-rupeezy-surface/80 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-6 py-4">
           {errorMsg && status === 'error' && (
             <div className="mb-2 text-xs text-rupeezy-hot">{errorMsg}</div>
@@ -262,16 +293,17 @@ export default function ChatPage() {
                   ? 'Conversation ended. Press Reset to start a new one.'
                   : 'Type a message — Enter to send, Shift+Enter for newline'
               }
-              className="flex-1 resize-none rounded-lg bg-rupeezy-card border border-slate-700 px-4 py-3 text-sm placeholder:text-slate-600 focus:outline-none focus:border-rupeezy-accent transition-colors disabled:opacity-50"
+              className="flex-1 resize-none rounded-lg bg-rupeezy-card border border-rupeezy-border px-4 py-3 text-sm placeholder:text-rupeezy-fg-faint focus:outline-none focus:border-rupeezy-accent transition-colors disabled:opacity-50"
               rows={2}
             />
             <button
               type="button"
               onClick={() => void send()}
               disabled={!canSend}
-              className="px-5 py-3 rounded-lg bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
             >
-              {status === 'streaming' ? '…' : 'Send'}
+              <Send size={14} />
+              {status === 'streaming' ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>
@@ -288,7 +320,7 @@ function Bubble({ message }: { message: ChatMessage }) {
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
           isUser
             ? 'bg-rupeezy-accent text-white rounded-br-sm'
-            : 'bg-rupeezy-card text-slate-100 rounded-bl-sm border border-slate-800'
+            : 'bg-rupeezy-card text-rupeezy-fg rounded-bl-sm border border-rupeezy-border'
         }`}
       >
         {message.text || (message.pending ? <Pulse /> : '')}
@@ -300,25 +332,50 @@ function Bubble({ message }: { message: ChatMessage }) {
 function Pulse() {
   return (
     <span className="inline-flex gap-1 items-center">
-      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" />
-      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:200ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:400ms]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
     </span>
   );
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  const map: Record<Status, { label: string; className: string }> = {
-    idle: { label: 'idle', className: 'bg-slate-700 text-slate-300' },
-    starting: { label: 'starting', className: 'bg-slate-700 text-slate-300' },
-    live: { label: 'live', className: 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50' },
-    streaming: { label: 'streaming', className: 'bg-rupeezy-accent/20 text-indigo-300 border border-indigo-700/50' },
-    scoring: { label: 'scoring', className: 'bg-amber-900/40 text-amber-300 border border-amber-700/50' },
-    ended: { label: 'ended', className: 'bg-slate-700 text-slate-400' },
-    error: { label: 'error', className: 'bg-red-900/40 text-red-300 border border-red-700/50' },
+function StatusPill({ status }: { status: Status }) {
+  const map: Record<Status, { label: string; cls: string }> = {
+    idle: {
+      label: 'idle',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-faint border-rupeezy-border',
+    },
+    starting: {
+      label: 'starting',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-muted border-rupeezy-border',
+    },
+    live: {
+      label: 'live',
+      cls: 'bg-rupeezy-ok-faint text-rupeezy-ok border-rupeezy-ok/30',
+    },
+    streaming: {
+      label: 'streaming',
+      cls: 'bg-rupeezy-accent-faint text-rupeezy-accent border-rupeezy-accent/30',
+    },
+    scoring: {
+      label: 'scoring',
+      cls: 'bg-rupeezy-warm-faint text-rupeezy-warm border-rupeezy-warm/30',
+    },
+    ended: {
+      label: 'ended',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-faint border-rupeezy-border',
+    },
+    error: {
+      label: 'error',
+      cls: 'bg-rupeezy-hot-faint text-rupeezy-hot border-rupeezy-hot/30',
+    },
   };
-  const { label, className } = map[status];
+  const { label, cls } = map[status];
   return (
-    <span className={`text-xs px-2.5 py-1 rounded-full font-mono ${className}`}>{label}</span>
+    <span
+      className={`text-[10px] px-2.5 py-1 rounded-full font-mono uppercase tracking-[0.16em] border ${cls}`}
+    >
+      {label}
+    </span>
   );
 }

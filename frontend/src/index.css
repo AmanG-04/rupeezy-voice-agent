@@ -1,15 +1,98 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/*
+ * Global stylesheet.
+ * Loads Inter (body), Fraunces (serif headlines), JetBrains Mono (code/data).
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root {
-  height: 100%;
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: theme('colors.rupeezy.ink');
+    color: theme('colors.rupeezy.fg');
+    font-family: theme('fontFamily.sans');
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: theme('letterSpacing.tightish');
+  }
+
+  /* Headlines default to the serif treatment */
+  h1, h2, h3 {
+    font-family: theme('fontFamily.serif');
+    letter-spacing: theme('letterSpacing.tighter');
+    font-feature-settings: 'ss01', 'ss02';
+  }
+
+  /* Selection — subtle accent tint */
+  ::selection {
+    background-color: theme('colors.rupeezy.accent');
+    color: theme('colors.rupeezy.ink');
+  }
+
+  /* Scrollbar (WebKit) — thin and dark */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: theme('colors.rupeezy.surface');
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.rupeezy.border');
+    border-radius: 4px;
+    border: 2px solid theme('colors.rupeezy.surface');
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.rupeezy.fg-faint');
+  }
 }
 
-body {
-  font-feature-settings: 'cv11', 'ss01';
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer components {
+  /*
+   * Glass surface — used on cards, panels, modals.
+   * Semi-transparent dark with a backdrop blur so anything behind it
+   * (the page bg or other panels) shows through softly.
+   */
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-glass-inset;
+  }
+  .glass-strong {
+    @apply bg-white/[0.05] backdrop-blur-2xl border border-white/[0.12] shadow-glass-card;
+  }
+  .glass-card {
+    @apply bg-rupeezy-card/80 backdrop-blur-xl border border-rupeezy-border;
+  }
+  .glass-elevated {
+    @apply bg-rupeezy-elevated/90 backdrop-blur-2xl border border-white/[0.08] shadow-lifted;
+  }
+
+  /* Subtle "hairline" dividers used between sections */
+  .hairline {
+    background: linear-gradient(
+      to right,
+      transparent,
+      theme('colors.rupeezy.border') 20%,
+      theme('colors.rupeezy.border') 80%,
+      transparent
+    );
+    height: 1px;
+  }
+
+  /* Eyebrow-style label above section titles */
+  .eyebrow {
+    @apply text-[10px] uppercase tracking-[0.18em] text-rupeezy-fg-faint font-medium;
+  }
+
+  /* Display number — large serif numerals for dashboard metrics */
+  .display-num {
+    @apply font-serif text-4xl font-medium text-rupeezy-fg tabular-nums;
+    letter-spacing: -0.04em;
+  }
 }

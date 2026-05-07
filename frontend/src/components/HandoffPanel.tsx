@@ -6,25 +6,28 @@ import type {
   SignalBreakdown,
 } from '../lib/api';
 
-const BUCKET_STYLE: Record<Bucket, { label: string; bg: string; border: string; text: string; dot: string }> = {
+const BUCKET_STYLE: Record<
+  Bucket,
+  { label: string; bg: string; border: string; text: string; dot: string }
+> = {
   hot: {
     label: 'HOT',
-    bg: 'bg-rupeezy-hot/10',
-    border: 'border-rupeezy-hot/40',
+    bg: 'bg-rupeezy-hot-faint',
+    border: 'border-rupeezy-hot/30',
     text: 'text-rupeezy-hot',
     dot: 'bg-rupeezy-hot',
   },
   warm: {
     label: 'WARM',
-    bg: 'bg-rupeezy-warm/10',
-    border: 'border-rupeezy-warm/40',
+    bg: 'bg-rupeezy-warm-faint',
+    border: 'border-rupeezy-warm/30',
     text: 'text-rupeezy-warm',
     dot: 'bg-rupeezy-warm',
   },
   cold: {
     label: 'COLD',
-    bg: 'bg-rupeezy-cold/10',
-    border: 'border-rupeezy-cold/40',
+    bg: 'bg-rupeezy-cold-faint',
+    border: 'border-rupeezy-cold/30',
     text: 'text-rupeezy-cold',
     dot: 'bg-rupeezy-cold',
   },
@@ -39,14 +42,14 @@ const NEXT_ACTION_LABEL: Record<NextActionType, string> = {
 };
 
 const OBJECTION_LABEL: Record<string, string> = {
-  existing_broker: "Existing broker",
-  not_enough_contacts: "Not enough contacts",
-  client_support: "Client support concerns",
-  trustworthiness: "Trust / legitimacy",
-  think_about_it: "Defer / think about it",
-  security_deposit: "Security deposit",
-  nism_required: "NISM required",
-  other: "Other",
+  existing_broker: 'Existing broker',
+  not_enough_contacts: 'Not enough contacts',
+  client_support: 'Client support concerns',
+  trustworthiness: 'Trust / legitimacy',
+  think_about_it: 'Defer / think about it',
+  security_deposit: 'Security deposit',
+  nism_required: 'NISM required',
+  other: 'Other',
 };
 
 const SIGNAL_LABEL: Record<keyof SignalBreakdown, string> = {
@@ -65,21 +68,31 @@ export default function HandoffPanel({
   handoff: HandoffRecord;
   onClose?: () => void;
 }) {
-  const { classification, discovery, summary_short, objections_raised, unresolved_questions, next_action, call } =
-    handoff;
+  const {
+    classification,
+    discovery,
+    summary_short,
+    objections_raised,
+    unresolved_questions,
+    next_action,
+    call,
+  } = handoff;
   const bs = BUCKET_STYLE[classification.bucket];
 
   return (
-    <aside className="fixed inset-y-0 right-0 w-full sm:w-[440px] bg-rupeezy-surface border-l border-slate-800 overflow-y-auto z-40 shadow-2xl">
-      <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-rupeezy-surface z-10">
+    <aside className="fixed inset-y-0 right-0 w-full sm:w-[480px] glass-elevated overflow-y-auto z-40">
+      <div className="px-7 py-5 border-b border-rupeezy-border-subtle flex items-center justify-between sticky top-0 bg-rupeezy-elevated/95 backdrop-blur-xl z-10">
         <div>
-          <div className="text-xs uppercase tracking-widest text-slate-500">Post-call handoff</div>
-          <div className="text-sm font-mono text-slate-400 mt-0.5">conv {handoff.lead_id}</div>
+          <div className="eyebrow mb-0.5">Post-call handoff</div>
+          <div className="text-xs font-mono text-rupeezy-fg-faint">
+            conv {handoff.lead_id}
+          </div>
         </div>
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-100 text-2xl leading-none px-2"
+            className="text-rupeezy-fg-muted hover:text-rupeezy-fg text-xl leading-none px-2 transition-colors"
             aria-label="Close"
           >
             ×
@@ -87,64 +100,91 @@ export default function HandoffPanel({
         )}
       </div>
 
-      <div className="px-6 py-6 space-y-6">
-        {/* Bucket badge + confidence */}
-        <div className={`rounded-2xl ${bs.bg} ${bs.border} border p-5`}>
+      <div className="px-7 py-6 space-y-7">
+        {/* Bucket card with confidence + rationale */}
+        <div className={`rounded-xl ${bs.bg} ${bs.border} border p-5`}>
           <div className="flex items-center gap-3">
-            <span className={`w-3 h-3 rounded-full ${bs.dot} animate-pulse`} />
-            <span className={`text-2xl font-bold tracking-wider ${bs.text}`}>{bs.label}</span>
-            <span className="text-xs text-slate-400 font-mono ml-auto">
-              {(classification.confidence * 100).toFixed(0)}% conf
+            <span className={`w-2 h-2 rounded-full ${bs.dot}`} />
+            <span
+              className={`text-base font-medium tracking-[0.18em] ${bs.text}`}
+            >
+              {bs.label}
+            </span>
+            <span className="text-xs text-rupeezy-fg-faint font-mono ml-auto tabular-nums">
+              {(classification.confidence * 100).toFixed(0)}% confidence
             </span>
           </div>
-          <div className="mt-3 text-sm text-slate-300 leading-relaxed">
+          <div className="mt-3 text-sm text-rupeezy-fg leading-relaxed">
             {classification.rationale}
           </div>
         </div>
 
         {/* Summary */}
-        <Section title="What happened">
-          <div className="text-sm text-slate-200 leading-relaxed">{summary_short}</div>
+        <Section title="Summary">
+          <div className="text-sm text-rupeezy-fg leading-relaxed">
+            {summary_short}
+          </div>
         </Section>
 
         {/* Next action */}
         <Section title="Next action">
-          <div className="rounded-xl bg-rupeezy-card border border-slate-800 px-4 py-3 flex items-center justify-between">
+          <div className="rounded-lg bg-rupeezy-card border border-rupeezy-border px-4 py-3 flex items-center justify-between">
             <div>
-              <div className="text-sm font-semibold text-slate-100">
+              <div className="text-sm text-rupeezy-fg">
                 {NEXT_ACTION_LABEL[next_action.type]}
               </div>
               {next_action.scheduled_for && (
-                <div className="text-xs text-slate-500 mt-0.5">
+                <div className="text-[11px] text-rupeezy-fg-faint mt-0.5">
                   scheduled {new Date(next_action.scheduled_for).toLocaleString()}
                 </div>
               )}
             </div>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-rupeezy-accent/20 text-indigo-300 border border-indigo-700/50 font-mono">
+            <span className="text-[10px] uppercase tracking-[0.16em] px-2.5 py-1 rounded-full bg-rupeezy-accent-faint text-rupeezy-accent border border-rupeezy-accent/30 font-mono">
               {next_action.type}
             </span>
           </div>
         </Section>
 
-        {/* Discovery */}
+        {/* Discovery grid */}
         <Section title="Discovery">
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-2 gap-px bg-rupeezy-border rounded-lg overflow-hidden">
             <Field k="Role" v={discovery.current_role} />
             <Field k="Current broker" v={discovery.current_broker ?? '—'} />
-            <Field k="Est. clients" v={discovery.estimated_clients?.toString() ?? '—'} />
-            <Field k="Est. AUM" v={discovery.estimated_aum_inr ? `₹${discovery.estimated_aum_inr.toLocaleString('en-IN')}` : '—'} />
+            <Field
+              k="Est. clients"
+              v={discovery.estimated_clients?.toString() ?? '—'}
+            />
+            <Field
+              k="Est. AUM"
+              v={
+                discovery.estimated_aum_inr
+                  ? `₹${discovery.estimated_aum_inr.toLocaleString('en-IN')}`
+                  : '—'
+              }
+            />
             <Field
               k="NISM Series VII"
-              v={discovery.has_nism_series_vii === null ? '—' : discovery.has_nism_series_vii ? 'yes' : 'no'}
+              v={
+                discovery.has_nism_series_vii === null ||
+                discovery.has_nism_series_vii === undefined
+                  ? '—'
+                  : discovery.has_nism_series_vii
+                    ? 'yes'
+                    : 'no'
+              }
             />
             <Field k="Language" v={handoff.contact.language_used} />
           </div>
         </Section>
 
-        {/* Signals */}
+        {/* Signal breakdown */}
         <Section title="Signal breakdown">
-          <div className="space-y-2">
-            {(Object.keys(classification.signal_breakdown) as Array<keyof SignalBreakdown>).map((k) => (
+          <div className="space-y-3.5">
+            {(
+              Object.keys(classification.signal_breakdown) as Array<
+                keyof SignalBreakdown
+              >
+            ).map((k) => (
               <SignalBar
                 key={k}
                 label={SIGNAL_LABEL[k]}
@@ -156,9 +196,11 @@ export default function HandoffPanel({
         </Section>
 
         {/* Objections */}
-        <Section title={`Objections raised (${objections_raised.length})`}>
+        <Section title={`Objections raised — ${objections_raised.length}`}>
           {objections_raised.length === 0 ? (
-            <div className="text-sm text-slate-500">None — lead engaged without resistance.</div>
+            <div className="text-sm text-rupeezy-fg-faint">
+              None — lead engaged without resistance.
+            </div>
           ) : (
             <div className="space-y-2">
               {objections_raised.map((o, i) => (
@@ -169,14 +211,16 @@ export default function HandoffPanel({
         </Section>
 
         {/* Unresolved questions */}
-        <Section title={`Unresolved questions (${unresolved_questions.length})`}>
+        <Section
+          title={`Unresolved questions — ${unresolved_questions.length}`}
+        >
           {unresolved_questions.length === 0 ? (
-            <div className="text-sm text-slate-500">None.</div>
+            <div className="text-sm text-rupeezy-fg-faint">None.</div>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {unresolved_questions.map((q, i) => (
-                <li key={i} className="text-sm text-slate-200 flex gap-2">
-                  <span className="text-rupeezy-warm">•</span>
+                <li key={i} className="text-sm text-rupeezy-fg flex gap-2.5">
+                  <span className="text-rupeezy-warm mt-1">·</span>
                   <span>{q}</span>
                 </li>
               ))}
@@ -186,7 +230,7 @@ export default function HandoffPanel({
 
         {/* Call meta */}
         <Section title="Call">
-          <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-3 gap-px bg-rupeezy-border rounded-lg overflow-hidden">
             <Field k="Duration" v={`${call.duration_sec}s`} />
             <Field k="Turns" v={call.turn_count.toString()} />
             <Field k="Ended by" v={call.ended_by} />
@@ -197,10 +241,16 @@ export default function HandoffPanel({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">{title}</div>
+      <div className="eyebrow mb-3">{title}</div>
       {children}
     </div>
   );
@@ -208,27 +258,37 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Field({ k, v }: { k: string; v: string }) {
   return (
-    <div className="rounded-md bg-rupeezy-card border border-slate-800 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500">{k}</div>
-      <div className="text-sm text-slate-100 mt-0.5 truncate">{v}</div>
+    <div className="bg-rupeezy-card px-3.5 py-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-rupeezy-fg-faint mb-1">
+        {k}
+      </div>
+      <div className="text-sm text-rupeezy-fg truncate font-mono">{v}</div>
     </div>
   );
 }
 
-function SignalBar({ label, value, negative }: { label: string; value: number; negative?: boolean }) {
+function SignalBar({
+  label,
+  value,
+  negative,
+}: {
+  label: string;
+  value: number;
+  negative?: boolean;
+}) {
   const pct = Math.round(value * 100);
-  const goodColor = 'bg-emerald-500';
-  const badColor = 'bg-rupeezy-hot';
   const isGood = negative ? value < 0.5 : value >= 0.5;
   return (
     <div>
-      <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-slate-300">{label}</span>
-        <span className="font-mono text-slate-400">{pct}</span>
+      <div className="flex items-center justify-between text-xs mb-1.5">
+        <span className="text-rupeezy-fg-muted">{label}</span>
+        <span className="font-mono text-rupeezy-fg-faint tabular-nums">
+          {pct}
+        </span>
       </div>
-      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div className="h-[3px] bg-rupeezy-border-subtle rounded-full overflow-hidden">
         <div
-          className={`h-full ${isGood ? goodColor : badColor} transition-all`}
+          className={`h-full transition-all duration-500 ${isGood ? 'bg-rupeezy-ok' : 'bg-rupeezy-hot'}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -239,20 +299,30 @@ function SignalBar({ label, value, negative }: { label: string; value: number; n
 function ObjectionRow({ obj }: { obj: ObjectionRaised }) {
   const resColor =
     obj.resolved === 'true'
-      ? 'text-emerald-400 border-emerald-700/50 bg-emerald-900/30'
+      ? 'text-rupeezy-ok border-rupeezy-ok/30 bg-rupeezy-ok-faint'
       : obj.resolved === 'partial'
-      ? 'text-rupeezy-warm border-amber-700/50 bg-amber-900/30'
-      : 'text-rupeezy-hot border-red-700/50 bg-red-900/30';
+        ? 'text-rupeezy-warm border-rupeezy-warm/30 bg-rupeezy-warm-faint'
+        : 'text-rupeezy-hot border-rupeezy-hot/30 bg-rupeezy-hot-faint';
   return (
-    <div className="rounded-lg bg-rupeezy-card border border-slate-800 p-3">
+    <div className="rounded-lg bg-rupeezy-card border border-rupeezy-border p-3.5">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-slate-100">{OBJECTION_LABEL[obj.id] ?? obj.id}</div>
-        <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-mono ${resColor}`}>
+        <div className="text-sm text-rupeezy-fg">
+          {OBJECTION_LABEL[obj.id] ?? obj.id}
+        </div>
+        <span
+          className={`text-[10px] uppercase tracking-[0.16em] px-2 py-0.5 rounded-full border font-mono ${resColor}`}
+        >
           {obj.resolved}
         </span>
       </div>
-      <div className="text-[10px] text-slate-500 font-mono mt-0.5">turn {obj.raised_at_turn}</div>
-      {obj.notes && <div className="text-xs text-slate-300 mt-2 leading-relaxed">{obj.notes}</div>}
+      <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-0.5">
+        turn {obj.raised_at_turn}
+      </div>
+      {obj.notes && (
+        <div className="text-xs text-rupeezy-fg-muted mt-2 leading-relaxed">
+          {obj.notes}
+        </div>
+      )}
     </div>
   );
 }

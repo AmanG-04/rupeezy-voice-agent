@@ -1,40 +1,59 @@
 import type { Funnel } from '../lib/api';
 
 /**
- * Conversion funnel: Contacted → Engaged → Qualified
- * with H/W/C breakdown chips below.
+ * Conversion funnel header — Contacted → Engaged → Qualified
+ * with H/W/C bucket breakdown beneath. Refined for production: serif
+ * display numbers, subtle drop-off labels, glass surface.
  */
 export default function FunnelHeader({ funnel }: { funnel: Funnel }) {
   const stages = [
     { key: 'contacted', label: 'Contacted', value: funnel.contacted },
-    { key: 'engaged', label: 'Engaged (>30s)', value: funnel.engaged },
-    { key: 'qualified', label: 'Qualified (H+W)', value: funnel.qualified },
+    { key: 'engaged', label: 'Engaged', sub: 'over 30s', value: funnel.engaged },
+    { key: 'qualified', label: 'Qualified', sub: 'hot + warm', value: funnel.qualified },
   ];
-
   const max = Math.max(funnel.contacted, 1);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-rupeezy-card p-6">
-      <div className="text-xs uppercase tracking-widest text-slate-500 mb-4">
-        Conversion funnel
+    <div className="glass-card rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-7">
+        <div>
+          <div className="eyebrow mb-1">Conversion funnel</div>
+          <div className="text-sm text-rupeezy-fg-muted">
+            Live counts across all calls in the dataset
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-3 gap-px bg-rupeezy-border rounded-xl overflow-hidden mb-6">
         {stages.map((s, idx) => {
           const pct = (s.value / max) * 100;
-          const dropoffPct = idx > 0
-            ? Math.round((s.value / Math.max(stages[idx - 1].value, 1)) * 100)
-            : 100;
+          const dropoff =
+            idx > 0
+              ? Math.round((s.value / Math.max(stages[idx - 1].value, 1)) * 100)
+              : null;
           return (
-            <div key={s.key}>
-              <div className="text-xs text-slate-400 mb-1">{s.label}</div>
-              <div className="text-3xl font-bold text-slate-100">{s.value}</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-1">
-                {idx > 0 && `${dropoffPct}% of prev`}
+            <div key={s.key} className="bg-rupeezy-card p-5">
+              <div className="flex items-baseline justify-between mb-2">
+                <div>
+                  <div className="text-xs text-rupeezy-fg-muted">
+                    {s.label}
+                    {s.sub && (
+                      <span className="text-rupeezy-fg-faint">
+                        {' '}— {s.sub}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {dropoff !== null && (
+                  <span className="text-[10px] text-rupeezy-fg-faint font-mono uppercase tracking-wider">
+                    {dropoff}% of prev
+                  </span>
+                )}
               </div>
-              <div className="h-1.5 mt-2 rounded-full bg-slate-800 overflow-hidden">
+              <div className="display-num">{s.value}</div>
+              <div className="h-[2px] mt-3 rounded-full bg-rupeezy-border-subtle overflow-hidden">
                 <div
-                  className="h-full bg-rupeezy-accent transition-all"
+                  className="h-full bg-rupeezy-accent transition-all duration-500"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -52,18 +71,47 @@ export default function FunnelHeader({ funnel }: { funnel: Funnel }) {
   );
 }
 
-function BucketChip({ kind, count }: { kind: 'hot' | 'warm' | 'cold'; count: number }) {
+function BucketChip({
+  kind,
+  count,
+}: {
+  kind: 'hot' | 'warm' | 'cold';
+  count: number;
+}) {
   const map = {
-    hot: { label: 'HOT', dot: 'bg-rupeezy-hot', text: 'text-rupeezy-hot', border: 'border-rupeezy-hot/30', bg: 'bg-rupeezy-hot/5' },
-    warm: { label: 'WARM', dot: 'bg-rupeezy-warm', text: 'text-rupeezy-warm', border: 'border-rupeezy-warm/30', bg: 'bg-rupeezy-warm/5' },
-    cold: { label: 'COLD', dot: 'bg-rupeezy-cold', text: 'text-rupeezy-cold', border: 'border-rupeezy-cold/30', bg: 'bg-rupeezy-cold/5' },
+    hot: {
+      label: 'HOT',
+      dot: 'bg-rupeezy-hot',
+      text: 'text-rupeezy-hot',
+      ring: 'border-rupeezy-hot/30 bg-rupeezy-hot-faint',
+    },
+    warm: {
+      label: 'WARM',
+      dot: 'bg-rupeezy-warm',
+      text: 'text-rupeezy-warm',
+      ring: 'border-rupeezy-warm/30 bg-rupeezy-warm-faint',
+    },
+    cold: {
+      label: 'COLD',
+      dot: 'bg-rupeezy-cold',
+      text: 'text-rupeezy-cold',
+      ring: 'border-rupeezy-cold/30 bg-rupeezy-cold-faint',
+    },
   } as const;
   const s = map[kind];
   return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${s.border} ${s.bg}`}>
+    <div
+      className={`inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border ${s.ring}`}
+    >
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-      <span className={`text-xs font-bold tracking-wider ${s.text}`}>{s.label}</span>
-      <span className="text-xs text-slate-300 font-mono">{count}</span>
+      <span
+        className={`text-[10px] font-medium uppercase tracking-[0.16em] ${s.text}`}
+      >
+        {s.label}
+      </span>
+      <span className="text-xs text-rupeezy-fg font-mono tabular-nums">
+        {count}
+      </span>
     </div>
   );
 }

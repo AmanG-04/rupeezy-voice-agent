@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowLeft, RefreshCw, Upload, Search } from 'lucide-react';
 import FunnelHeader from '../components/FunnelHeader';
 import LeadsTable from '../components/LeadsTable';
 import LeadDrawer from '../components/LeadDrawer';
 import UploadLeadsModal from '../components/UploadLeadsModal';
-import { type Bucket, type Funnel, type LeadRow, getFunnel, listLeads } from '../lib/api';
+import { Brand } from '../components/Brand';
+import {
+  type Bucket,
+  type Funnel,
+  type LeadRow,
+  getFunnel,
+  listLeads,
+} from '../lib/api';
 
 const BUCKET_FILTERS: Array<{ key: 'all' | Bucket; label: string }> = [
   { key: 'all', label: 'All' },
@@ -53,51 +61,60 @@ export default function DashboardPage() {
 
   const filteredLeads = search
     ? leads.filter((l) => {
-        const blob = `${l.summary_short} ${l.conv_id} ${l.language_used} ${l.next_action}`.toLowerCase();
+        const blob =
+          `${l.summary_short} ${l.conv_id} ${l.language_used} ${l.next_action}`.toLowerCase();
         return blob.includes(search.toLowerCase());
       })
     : leads;
 
   return (
     <div className="min-h-screen bg-rupeezy-ink">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-rupeezy-surface sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
-          <Link to="/" className="text-slate-400 hover:text-slate-200 text-sm">
-            ←
+      {/* Glass header */}
+      <header className="border-b border-rupeezy-border-subtle bg-rupeezy-surface/80 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-8 py-4 flex items-center gap-5">
+          <Link
+            to="/"
+            className="text-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
+            aria-label="Back to home"
+          >
+            <ArrowLeft size={18} />
           </Link>
-          <div className="w-9 h-9 rounded-lg bg-rupeezy-accent flex items-center justify-center font-bold text-white text-sm">
-            R
+          <div className="hidden sm:block">
+            <Brand size="sm" />
           </div>
-          <div className="flex-1">
-            <div className="font-semibold leading-tight">RM Dashboard</div>
-            <div className="text-xs text-slate-500">
+          <div className="flex-1 min-w-0 ml-2">
+            <div className="font-serif text-lg text-rupeezy-fg leading-tight">
+              RM Dashboard
+            </div>
+            <div className="text-xs text-rupeezy-fg-faint mt-0.5">
               Conversion funnel · qualified leads · handoff context
             </div>
           </div>
           <button
             type="button"
             onClick={() => setUploadOpen(true)}
-            className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-2 text-xs px-3.5 py-2 rounded-md bg-rupeezy-accent text-white hover:opacity-90 transition-opacity"
             title="Upload a CSV of leads and dial them via the agent"
           >
+            <Upload size={13} />
             Upload leads
           </button>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors"
-            title="Auto-refreshes every 5s"
+            className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
+            title="Auto-refreshes every 5 seconds"
           >
+            <RefreshCw size={13} />
             Refresh
           </button>
         </div>
       </header>
 
       {/* Body */}
-      <main className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-6xl mx-auto px-8 py-8 space-y-7">
         {error && (
-          <div className="rounded-lg border border-red-700/50 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+          <div className="rounded-xl border border-rupeezy-hot/30 bg-rupeezy-hot-faint px-4 py-3 text-sm text-rupeezy-hot">
             {error}
           </div>
         )}
@@ -107,7 +124,7 @@ export default function DashboardPage() {
 
         {/* Zone 4: Filter bar */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1 rounded-lg border border-slate-800 bg-rupeezy-card p-1">
+          <div className="flex gap-1 rounded-lg border border-rupeezy-border bg-rupeezy-card p-1">
             {BUCKET_FILTERS.map((f) => {
               const active = bucketFilter === f.key;
               return (
@@ -118,7 +135,7 @@ export default function DashboardPage() {
                   className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
                     active
                       ? 'bg-rupeezy-accent text-white'
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-rupeezy-fg-muted hover:text-rupeezy-fg'
                   }`}
                 >
                   {f.label}
@@ -126,14 +143,20 @@ export default function DashboardPage() {
               );
             })}
           </div>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search summary, conv id, language, action…"
-            className="flex-1 min-w-[220px] rounded-md bg-rupeezy-card border border-slate-700 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:outline-none focus:border-rupeezy-accent"
-          />
-          <div className="text-xs text-slate-500 font-mono">
+          <div className="flex-1 min-w-[220px] relative">
+            <Search
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-rupeezy-fg-faint pointer-events-none"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search summary, conv id, language, action…"
+              className="w-full rounded-md bg-rupeezy-card border border-rupeezy-border pl-9 pr-3 py-2 text-sm placeholder:text-rupeezy-fg-faint focus:outline-none focus:border-rupeezy-accent transition-colors"
+            />
+          </div>
+          <div className="text-xs text-rupeezy-fg-faint font-mono tabular-nums">
             {filteredLeads.length} of {leads.length}
           </div>
         </div>
@@ -149,7 +172,10 @@ export default function DashboardPage() {
 
       {/* Zone 3: Drilldown drawer */}
       {selectedConvId && (
-        <LeadDrawer convId={selectedConvId} onClose={() => setSelectedConvId(null)} />
+        <LeadDrawer
+          convId={selectedConvId}
+          onClose={() => setSelectedConvId(null)}
+        />
       )}
 
       {/* Phase 9: batch upload modal */}

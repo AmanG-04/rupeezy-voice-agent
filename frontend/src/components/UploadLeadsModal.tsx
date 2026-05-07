@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Upload,
+  Download,
+  Play,
+  Square,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Loader2,
+} from 'lucide-react';
+import {
   type BatchUploadResponse,
   type QueuedLead,
   dialNextLead,
@@ -28,7 +38,9 @@ export default function UploadLeadsModal({
   onAfterDial: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<BatchUploadResponse | null>(null);
+  const [uploadResult, setUploadResult] = useState<BatchUploadResponse | null>(
+    null,
+  );
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedLead[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -41,19 +53,16 @@ export default function UploadLeadsModal({
       const q = await getLeadsQueue();
       setQueue(q.queued);
     } catch (e) {
-      // Non-fatal — keep last good state.
       console.warn('queue refresh failed', e);
     }
   };
 
-  // Initial fetch + 4s poll while modal is open.
   useEffect(() => {
     void refreshQueue();
     const t = setInterval(() => void refreshQueue(), 4000);
     return () => clearInterval(t);
   }, []);
 
-  // Close on Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -96,7 +105,6 @@ export default function UploadLeadsModal({
     setProcessing(true);
     setProcessError(null);
 
-    // Poll dial-next every 4s until the queue is idle (or the user stops).
     while (!stopRef.current) {
       try {
         const res = await dialNextLead();
@@ -107,8 +115,6 @@ export default function UploadLeadsModal({
         setProcessError((e as Error).message);
         break;
       }
-      // Pace the next call. 4s is comfortably above Gemini's free-tier RPM
-      // ceiling for the 3-turn scripted scenario the dialer runs.
       await new Promise((r) => setTimeout(r, 4000));
     }
 
@@ -121,27 +127,25 @@ export default function UploadLeadsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-rupeezy-ink/70 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-rupeezy-ink/80 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl bg-rupeezy-surface border border-slate-800 rounded-2xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        className="w-full max-w-2xl glass-elevated rounded-2xl shadow-lifted max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-7 py-5 border-b border-rupeezy-border-subtle flex items-center justify-between">
           <div>
-            <div className="text-xs uppercase tracking-widest text-slate-500">
-              Batch upload
-            </div>
-            <div className="text-sm font-semibold text-slate-200 mt-0.5">
+            <div className="eyebrow mb-0.5">Batch upload</div>
+            <div className="font-serif text-lg text-rupeezy-fg leading-tight">
               Upload leads
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-100 text-2xl leading-none px-2"
+            className="text-rupeezy-fg-muted hover:text-rupeezy-fg text-xl leading-none px-2 transition-colors"
             aria-label="Close"
           >
             ×
@@ -149,21 +153,30 @@ export default function UploadLeadsModal({
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 space-y-5 overflow-y-auto">
+        <div className="px-7 py-6 space-y-6 overflow-y-auto">
           {/* Upload zone */}
-          <div className="rounded-xl border border-dashed border-slate-700 bg-rupeezy-card/40 p-5">
-            <div className="text-sm text-slate-300 mb-1">
-              Drop or select a CSV file.
-            </div>
-            <div className="text-xs text-slate-500 mb-4 font-mono">
-              Format: name, phone, language_pref, source
+          <div className="rounded-xl border border-dashed border-rupeezy-border bg-rupeezy-card/40 p-5">
+            <div className="flex items-start gap-3 mb-4">
+              <Upload
+                size={18}
+                className="text-rupeezy-fg-faint mt-0.5 shrink-0"
+              />
+              <div>
+                <div className="text-sm text-rupeezy-fg leading-snug">
+                  Drop or select a CSV file
+                </div>
+                <div className="text-[11px] text-rupeezy-fg-faint mt-1 font-mono">
+                  Format: name, phone, language_pref, source
+                </div>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={handleDownloadTemplate}
-                className="text-xs px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
               >
+                <Download size={12} />
                 Download template
               </button>
               <input
@@ -173,7 +186,6 @@ export default function UploadLeadsModal({
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void handleFile(f);
-                  // Reset so the same file name can be re-selected.
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
                 className="hidden"
@@ -182,39 +194,65 @@ export default function UploadLeadsModal({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
-                {uploading ? 'Uploading…' : 'Choose file'}
+                {uploading ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    Uploading…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={12} />
+                    Choose file
+                  </>
+                )}
               </button>
             </div>
           </div>
 
           {/* Upload result */}
           {uploadError && (
-            <div className="rounded-lg border border-red-700/50 bg-red-900/30 px-4 py-3 text-sm text-red-200">
-              {uploadError}
+            <div className="rounded-lg border border-rupeezy-hot/30 bg-rupeezy-hot-faint px-4 py-3 text-sm text-rupeezy-hot flex items-start gap-2.5">
+              <XCircle size={14} className="mt-0.5 shrink-0" />
+              <span>{uploadError}</span>
             </div>
           )}
           {uploadResult && (
-            <div className="rounded-lg border border-slate-800 bg-rupeezy-card px-4 py-3 text-sm text-slate-200">
-              <div className="flex flex-wrap gap-x-6 gap-y-1">
-                <span>
-                  <span className="text-emerald-400">✓ inserted:</span>{' '}
-                  <span className="font-mono">{uploadResult.inserted}</span>
+            <div className="rounded-lg border border-rupeezy-border bg-rupeezy-card px-4 py-3 text-sm">
+              <div className="flex flex-wrap gap-x-6 gap-y-1.5 items-center">
+                <span className="inline-flex items-center gap-1.5 text-rupeezy-ok">
+                  <CheckCircle2 size={13} />
+                  <span className="text-rupeezy-fg-muted">
+                    inserted{' '}
+                    <span className="font-mono text-rupeezy-fg tabular-nums">
+                      {uploadResult.inserted}
+                    </span>
+                  </span>
                 </span>
-                <span>
-                  <span className="text-amber-400">⚠ skipped:</span>{' '}
-                  <span className="font-mono">{uploadResult.skipped_duplicates}</span>
+                <span className="inline-flex items-center gap-1.5 text-rupeezy-warm">
+                  <AlertTriangle size={13} />
+                  <span className="text-rupeezy-fg-muted">
+                    skipped{' '}
+                    <span className="font-mono text-rupeezy-fg tabular-nums">
+                      {uploadResult.skipped_duplicates}
+                    </span>
+                  </span>
                 </span>
                 {uploadResult.errors.length > 0 && (
-                  <span>
-                    <span className="text-rose-400">errors:</span>{' '}
-                    <span className="font-mono">{uploadResult.errors.length}</span>
+                  <span className="inline-flex items-center gap-1.5 text-rupeezy-hot">
+                    <XCircle size={13} />
+                    <span className="text-rupeezy-fg-muted">
+                      errors{' '}
+                      <span className="font-mono text-rupeezy-fg tabular-nums">
+                        {uploadResult.errors.length}
+                      </span>
+                    </span>
                   </span>
                 )}
               </div>
               {uploadResult.errors.length > 0 && (
-                <ul className="mt-2 text-xs text-rose-300 font-mono space-y-0.5 max-h-24 overflow-y-auto">
+                <ul className="mt-3 text-[11px] text-rupeezy-hot font-mono space-y-0.5 max-h-24 overflow-y-auto pl-1">
                   {uploadResult.errors.map((e, i) => (
                     <li key={i}>· {e}</li>
                   ))}
@@ -224,49 +262,58 @@ export default function UploadLeadsModal({
           )}
 
           {/* Process queue control */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
               {!processing ? (
                 <button
                   type="button"
                   onClick={() => void startProcessing()}
                   disabled={queuedCount === 0}
-                  className="text-xs px-3 py-1.5 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-                  title={queuedCount === 0 ? 'No queued leads' : 'Dial each queued lead through the real conversation engine, one at a time.'}
+                  className="inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+                  title={
+                    queuedCount === 0
+                      ? 'No queued leads'
+                      : 'Dial each queued lead through the real conversation engine, one at a time.'
+                  }
                 >
-                  Process queue ▷
+                  <Play size={12} />
+                  Process queue
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={stopProcessing}
-                  className="text-xs px-3 py-1.5 rounded-md border border-rupeezy-hot/50 text-rupeezy-hot hover:bg-rupeezy-hot/10 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-md border border-rupeezy-hot/40 text-rupeezy-hot hover:bg-rupeezy-hot-faint transition-colors"
                 >
-                  ■ Stop after current lead
+                  <Square size={12} />
+                  Stop after current lead
                 </button>
               )}
-              <div className="text-xs text-slate-500 font-mono">
-                {queuedCount} queued · {completedCount} done · {queue.length} total
+              <div className="text-xs text-rupeezy-fg-faint font-mono tabular-nums">
+                {queuedCount} queued · {completedCount} done · {queue.length}{' '}
+                total
               </div>
               {processError && (
-                <span className="text-xs text-rose-300 font-mono">{processError}</span>
+                <span className="text-xs text-rupeezy-hot font-mono">
+                  {processError}
+                </span>
               )}
             </div>
 
-            {/* Disclaimer + live progress note */}
             {processing ? (
-              <div className="flex items-center gap-2 text-xs text-rupeezy-warm bg-rupeezy-warm/5 border border-rupeezy-warm/30 rounded-md px-3 py-2">
+              <div className="flex items-start gap-2.5 text-xs text-rupeezy-warm bg-rupeezy-warm-faint border border-rupeezy-warm/30 rounded-md px-3 py-2.5 leading-relaxed">
                 <PulseDot />
                 <span>
-                  Dialing… each lead runs a real ~30s call through Gemini + RAG +
-                  scoring. The dashboard updates as each one completes — you
+                  Dialing… each lead runs a real ~30s call through Gemini + RAG
+                  + scoring. The dashboard updates as each one completes — you
                   don't need to watch this.
                 </span>
               </div>
             ) : queuedCount > 0 ? (
-              <div className="text-xs text-slate-500 leading-relaxed">
+              <div className="text-xs text-rupeezy-fg-faint leading-relaxed">
                 Each queued lead becomes a real conversation through the agent
-                ({queuedCount} × ~30s ≈ <span className="text-slate-300 font-mono">
+                ({queuedCount} × ~30s ≈{' '}
+                <span className="text-rupeezy-fg-muted font-mono">
                   {Math.round(queuedCount * 0.5)}–{queuedCount} min
                 </span>{' '}
                 total). You can close this modal — processing continues in the
@@ -277,29 +324,29 @@ export default function UploadLeadsModal({
 
           {/* Live queue */}
           <div>
-            <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">
-              Live queue
-            </div>
+            <div className="eyebrow mb-3">Live queue</div>
             {queue.length === 0 ? (
-              <div className="text-xs text-slate-600 italic px-1 py-3">
+              <div className="text-xs text-rupeezy-fg-faint italic px-1 py-3">
                 No leads queued. Upload a CSV to begin.
               </div>
             ) : (
-              <ul className="divide-y divide-slate-800 border border-slate-800 rounded-lg bg-rupeezy-card/40 max-h-64 overflow-y-auto">
+              <ul className="divide-y divide-rupeezy-border-subtle border border-rupeezy-border rounded-lg bg-rupeezy-card max-h-64 overflow-y-auto">
                 {queue.map((q) => (
                   <li
                     key={q.lead_id}
-                    className="px-3 py-2 flex items-center gap-3 text-xs"
+                    className="px-3.5 py-2.5 flex items-center gap-3 text-xs"
                   >
                     <StatusBadge status={q.status} />
-                    <div className="flex-1 truncate text-slate-200">{q.name}</div>
-                    <div className="text-slate-500 font-mono truncate">{q.phone}</div>
-                    <div className="text-slate-600 font-mono w-16 truncate">
+                    <div className="flex-1 truncate text-rupeezy-fg">
+                      {q.name}
+                    </div>
+                    <div className="text-rupeezy-fg-muted font-mono truncate">
+                      {q.phone}
+                    </div>
+                    <div className="text-rupeezy-fg-faint font-mono w-16 truncate text-right">
                       {q.language_pref}
                     </div>
-                    {q.bucket && (
-                      <BucketTag bucket={q.bucket} />
-                    )}
+                    {q.bucket && <BucketTag bucket={q.bucket} />}
                   </li>
                 ))}
               </ul>
@@ -313,24 +360,33 @@ export default function UploadLeadsModal({
 
 function PulseDot() {
   return (
-    <span className="inline-block w-2 h-2 rounded-full bg-rupeezy-warm animate-pulse shrink-0" />
+    <span className="inline-block w-2 h-2 rounded-full bg-rupeezy-warm animate-pulse shrink-0 mt-1" />
   );
 }
 
 function StatusBadge({ status }: { status: QueuedLead['status'] }) {
   const map = {
-    queued: { label: 'queued', cls: 'bg-slate-700/40 text-slate-300 border-slate-700' },
+    queued: {
+      label: 'queued',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-muted border-rupeezy-border',
+    },
     contacting: {
       label: 'contacting',
-      cls: 'bg-rupeezy-accent/20 text-rupeezy-accent border-rupeezy-accent/40 animate-pulse',
+      cls: 'bg-rupeezy-accent-faint text-rupeezy-accent border-rupeezy-accent/30 animate-pulse',
     },
-    completed: { label: 'done', cls: 'bg-emerald-700/30 text-emerald-300 border-emerald-700/40' },
-    failed: { label: 'failed', cls: 'bg-rose-900/40 text-rose-300 border-rose-800/50' },
+    completed: {
+      label: 'done',
+      cls: 'bg-rupeezy-ok-faint text-rupeezy-ok border-rupeezy-ok/30',
+    },
+    failed: {
+      label: 'failed',
+      cls: 'bg-rupeezy-hot-faint text-rupeezy-hot border-rupeezy-hot/30',
+    },
   } as const;
   const s = map[status];
   return (
     <span
-      className={`inline-block min-w-[68px] text-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${s.cls}`}
+      className={`inline-block min-w-[68px] text-center text-[10px] uppercase tracking-[0.16em] font-mono px-2 py-0.5 rounded-full border ${s.cls}`}
     >
       {s.label}
     </span>
@@ -344,7 +400,9 @@ function BucketTag({ bucket }: { bucket: 'hot' | 'warm' | 'cold' }) {
     cold: 'text-rupeezy-cold',
   } as const;
   return (
-    <span className={`text-[10px] font-bold uppercase tracking-wider ${map[bucket]}`}>
+    <span
+      className={`text-[10px] uppercase tracking-[0.16em] font-mono ${map[bucket]}`}
+    >
       {bucket}
     </span>
   );

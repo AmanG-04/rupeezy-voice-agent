@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowLeft, Mic, Square, Send } from 'lucide-react';
 import HandoffPanel from '../components/HandoffPanel';
+import { Brand } from '../components/Brand';
 import {
   type ConversationMessage,
   type HandoffRecord,
@@ -30,6 +32,11 @@ const LANG_OPTIONS: Array<{ code: string; label: string }> = [
   { code: 'en-IN', label: 'English (India)' },
   { code: 'en-US', label: 'English (US)' },
   { code: 'hi-IN', label: 'Hindi' },
+  { code: 'ta-IN', label: 'Tamil' },
+  { code: 'te-IN', label: 'Telugu' },
+  { code: 'mr-IN', label: 'Marathi' },
+  { code: 'gu-IN', label: 'Gujarati' },
+  { code: 'bn-IN', label: 'Bengali' },
 ];
 
 interface VoiceMessage extends ConversationMessage {
@@ -55,8 +62,6 @@ export default function VoicePage() {
   const langRef = useRef<string>('en-IN');
   const audioPlayerRef = useRef<AudioQueuePlayer | null>(null);
 
-  // Mirror state into refs so the SpeechRecognition handlers (which capture
-  // closures at startup) always see the current values.
   useEffect(() => {
     convIdRef.current = convId;
   }, [convId]);
@@ -67,19 +72,17 @@ export default function VoicePage() {
     langRef.current = lang;
   }, [lang]);
 
-  // Capability check on mount.
   useEffect(() => {
     const recOk = isSpeechRecognitionAvailable();
-    const audioOk = typeof window !== 'undefined' && (
-      'AudioContext' in window || 'webkitAudioContext' in window
-    );
+    const audioOk =
+      typeof window !== 'undefined' &&
+      ('AudioContext' in window || 'webkitAudioContext' in window);
     log('capability check:', { recognition: recOk, audioContext: audioOk });
     if (!recOk || !audioOk) {
       setStatus('unsupported');
     }
   }, []);
 
-  // Auto-scroll on new messages.
   useEffect(() => {
     transcriptScrollerRef.current?.scrollTo({
       top: transcriptScrollerRef.current.scrollHeight,
@@ -87,13 +90,12 @@ export default function VoicePage() {
     });
   }, [messages, partialText]);
 
-  // Cleanup on unmount.
   useEffect(() => {
     return () => {
       try {
         recognitionRef.current?.abort();
       } catch {
-        // ignore
+        /* ignore */
       }
       audioPlayerRef.current?.stop();
       audioPlayerRef.current = null;
@@ -111,11 +113,14 @@ export default function VoicePage() {
     setMessages((prev) => [
       ...prev,
       { role: 'user', text, created_at: new Date().toISOString() },
-      { role: 'assistant', text: '', created_at: new Date().toISOString(), pending: true },
+      {
+        role: 'assistant',
+        text: '',
+        created_at: new Date().toISOString(),
+        pending: true,
+      },
     ]);
 
-    // Reset the audio queue for this turn but keep the AudioContext alive
-    // (so the user-gesture grant from startCall persists).
     if (!audioPlayerRef.current) {
       audioPlayerRef.current = new AudioQueuePlayer();
     } else {
@@ -146,7 +151,6 @@ export default function VoicePage() {
             setStatus('speaking');
             log('first audio chunk received, switching to speaking');
           }
-          // Fire-and-forget; player handles its own queue.
           void player.enqueue(wavB64);
         },
         onError: (msg) => {
@@ -169,19 +173,20 @@ export default function VoicePage() {
       });
 
       if (firstAudioReceived) {
-        // Wait for the entire queue to drain, then return to listening.
         try {
           await player.drained();
         } catch {
-          // ignore
+          /* ignore */
         }
         log('audio queue drained, returning to listening');
         isReplyingRef.current = false;
         if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
           setStatus('listening');
         }
-      } else if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-        // No audio was generated (e.g. TTS failed silently). Just move on.
+      } else if (
+        statusRef.current !== 'ended' &&
+        statusRef.current !== 'scoring'
+      ) {
         setStatus('listening');
       }
     }
@@ -191,7 +196,7 @@ export default function VoicePage() {
     try {
       recognitionRef.current?.stop();
     } catch {
-      // ignore
+      /* ignore */
     }
   }, []);
 
@@ -200,7 +205,9 @@ export default function VoicePage() {
     if (!r) {
       log('createRecognition returned null');
       setStatus('unsupported');
-      setErrorMsg('SpeechRecognition is not available in this browser. Use Chrome or Edge.');
+      setErrorMsg(
+        'SpeechRecognition is not available in this browser. Use Chrome or Edge.',
+      );
       return;
     }
     recognitionRef.current = r;
@@ -232,10 +239,8 @@ export default function VoicePage() {
       setPartialText(interim);
       if (final) {
         pendingFinal += final;
-        log('recognition: final segment:', JSON.stringify(final), 'pendingFinal:', JSON.stringify(pendingFinal));
       }
 
-      // Dispatch when we have a final segment with non-trivial content.
       if (final.trim() && pendingFinal.trim().length >= 2) {
         const utterance = pendingFinal.trim();
         pendingFinal = '';
@@ -248,7 +253,9 @@ export default function VoicePage() {
       log('recognition: error', e.error, e.message ?? '');
       if (e.error === 'no-speech' || e.error === 'aborted') return;
       if (e.error === 'not-allowed') {
-        setErrorMsg('Microphone permission denied. Allow mic access and try again.');
+        setErrorMsg(
+          'Microphone permission denied. Allow mic access and try again.',
+        );
         setStatus('error');
       } else if (e.error === 'audio-capture') {
         setErrorMsg('No microphone found.');
@@ -258,8 +265,10 @@ export default function VoicePage() {
 
     r.onend = () => {
       log('recognition: onend, current status:', statusRef.current);
-      // Auto-restart if the call is still live (browser tends to stop after silence).
-      if (statusRef.current === 'listening' || statusRef.current === 'speaking') {
+      if (
+        statusRef.current === 'listening' ||
+        statusRef.current === 'speaking'
+      ) {
         try {
           r.start();
           log('recognition: auto-restarted');
@@ -275,16 +284,13 @@ export default function VoicePage() {
     } catch (e) {
       log('recognition: start threw', e);
     }
-  }, []);
+  }, [dispatchUtterance]);
 
   async function startCall() {
     setStatus('starting');
     setErrorMsg(null);
     setMessages([]);
     setHandoff(null);
-    // Construct the AudioQueuePlayer here, on the user-gesture click, so the
-    // browser grants the AudioContext permission to play sound. Constructing
-    // it later (e.g. inside dispatchUtterance) leaves the context suspended.
     if (!audioPlayerRef.current) {
       audioPlayerRef.current = new AudioQueuePlayer();
     }
@@ -292,11 +298,9 @@ export default function VoicePage() {
       const r = await createConversation();
       log('conversation created:', r.conv_id);
       setConvId(r.conv_id);
-      convIdRef.current = r.conv_id;          // set ref synchronously
+      convIdRef.current = r.conv_id;
       setStatus('listening');
-      statusRef.current = 'listening';        // set ref synchronously
-      // Start recognition AFTER convId is in the ref so the first onresult
-      // can read it.
+      statusRef.current = 'listening';
       startRecognition();
     } catch (e) {
       log('startCall error:', e);
@@ -325,8 +329,6 @@ export default function VoicePage() {
     }
   }
 
-  // Manual fallback: if STT isn't dispatching for some reason (or user wants
-  // to type instead), let them send a typed turn.
   const [manualText, setManualText] = useState('');
   const sendManual = () => {
     const t = manualText.trim();
@@ -337,20 +339,29 @@ export default function VoicePage() {
 
   if (status === 'unsupported') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6">
+      <div className="min-h-screen bg-rupeezy-ink flex items-center justify-center px-6">
         <div className="max-w-md text-center">
-          <div className="text-xs uppercase tracking-widest text-rupeezy-warm mb-2">Phase 6</div>
-          <h1 className="text-2xl font-semibold mb-3">Voice not supported</h1>
-          <p className="text-slate-400 text-sm mb-3">
-            This browser doesn't expose the Web Speech API. Voice mode requires Chrome, Edge, or Brave on
-            desktop. The text-chat path works everywhere.
+          <div className="eyebrow mb-3">Voice mode</div>
+          <h1 className="font-serif text-3xl text-rupeezy-fg mb-4">
+            Voice not supported here
+          </h1>
+          <p className="text-rupeezy-fg-muted text-sm leading-relaxed mb-6">
+            This browser doesn't expose the Web Speech API. Voice mode requires
+            Chrome, Edge, or Brave on desktop. The text-chat path works
+            everywhere.
           </p>
-          <div className="flex gap-3 justify-center mt-6">
-            <Link to="/chat" className="text-rupeezy-accent hover:underline text-sm">
-              → Use text chat instead
+          <div className="flex gap-3 justify-center">
+            <Link
+              to="/chat"
+              className="text-xs px-4 py-2 rounded-md bg-rupeezy-accent text-white hover:opacity-90 transition-opacity"
+            >
+              Use text chat instead
             </Link>
-            <Link to="/" className="text-slate-400 hover:underline text-sm">
-              ← back home
+            <Link
+              to="/"
+              className="text-xs px-4 py-2 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
+            >
+              Back home
             </Link>
           </div>
         </div>
@@ -358,20 +369,29 @@ export default function VoicePage() {
     );
   }
 
+  const isLive =
+    status === 'listening' || status === 'speaking' || status === 'thinking';
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen bg-rupeezy-ink flex flex-col">
       {/* Header */}
-      <header className="border-b border-slate-800 bg-rupeezy-surface">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-          <Link to="/" className="text-slate-400 hover:text-slate-200 text-sm">
-            ←
+      <header className="border-b border-rupeezy-border-subtle bg-rupeezy-surface/80 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
+          <Link
+            to="/"
+            className="text-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
+            aria-label="Back to home"
+          >
+            <ArrowLeft size={18} />
           </Link>
-          <div className="w-9 h-9 rounded-lg bg-rupeezy-accent flex items-center justify-center font-bold text-white text-sm">
-            🎙
+          <div className="hidden sm:block">
+            <Brand size="sm" />
           </div>
-          <div className="flex-1">
-            <div className="font-semibold leading-tight">Aria — Voice Call</div>
-            <div className="text-xs text-slate-500 font-mono">
+          <div className="flex-1 min-w-0 ml-1">
+            <div className="font-serif text-base text-rupeezy-fg leading-tight">
+              Aria · Voice call
+            </div>
+            <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-0.5">
               {convId ? `conv ${convId}` : 'idle'}
             </div>
           </div>
@@ -380,8 +400,8 @@ export default function VoicePage() {
             title="Conversation language"
             value={lang}
             onChange={(e) => setLang(e.target.value)}
-            disabled={status === 'listening' || status === 'speaking' || status === 'thinking'}
-            className="text-xs px-2 py-1.5 rounded-md border border-slate-700 bg-rupeezy-card text-slate-300 disabled:opacity-50"
+            disabled={isLive}
+            className="text-xs px-2.5 py-1.5 rounded-md bg-rupeezy-card border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint focus:outline-none focus:border-rupeezy-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {LANG_OPTIONS.map((l) => (
               <option key={l.code} value={l.code}>
@@ -389,65 +409,80 @@ export default function VoicePage() {
               </option>
             ))}
           </select>
-          <StatusBadge status={status} />
+          <StatusPill status={status} />
         </div>
       </header>
 
       {/* Body */}
       <main className="flex-1 flex flex-col">
-        {/* Big mic button */}
-        <div className="flex flex-col items-center justify-center py-10 border-b border-slate-800">
+        {/* Mic stage */}
+        <section className="flex flex-col items-center justify-center py-12 px-6 border-b border-rupeezy-border-subtle">
           {status === 'idle' || status === 'ended' || status === 'error' ? (
             <button
               type="button"
               onClick={() => void startCall()}
-              className="w-32 h-32 rounded-full bg-rupeezy-accent text-white text-4xl shadow-2xl hover:scale-105 transition-transform"
+              className="group relative w-32 h-32 rounded-full bg-rupeezy-accent text-white shadow-lifted hover:scale-[1.03] active:scale-95 transition-transform flex items-center justify-center"
               aria-label="Start call"
             >
-              🎙
+              <span className="absolute inset-0 rounded-full bg-rupeezy-accent/30 blur-2xl group-hover:bg-rupeezy-accent/50 transition-colors" />
+              <Mic size={42} strokeWidth={1.6} className="relative" />
             </button>
           ) : (
             <button
               type="button"
               onClick={() => void endCall()}
               disabled={status === 'starting' || status === 'scoring'}
-              className="w-32 h-32 rounded-full bg-rupeezy-hot text-white text-4xl shadow-2xl hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100"
+              className="group relative w-32 h-32 rounded-full bg-rupeezy-hot text-white shadow-lifted hover:scale-[1.03] active:scale-95 transition-transform disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center"
               aria-label="End call"
             >
-              ⏹
+              <span className="absolute inset-0 rounded-full bg-rupeezy-hot/30 blur-2xl" />
+              <Square size={36} strokeWidth={1.6} className="relative" />
             </button>
           )}
-          <div className="mt-4 text-sm text-slate-400">
-            {status === 'idle' && 'Click to start the call'}
-            {status === 'starting' && 'Starting…'}
+
+          <div className="mt-6 text-sm text-rupeezy-fg-muted min-h-[24px]">
+            {status === 'idle' && (
+              <span>Click the mic to start the call</span>
+            )}
+            {status === 'starting' && <span>Starting…</span>}
             {status === 'listening' && (
-              <span className="inline-flex items-center gap-2">
-                <PulseDot color="bg-emerald-400" /> Listening — speak naturally
+              <span className="inline-flex items-center gap-2.5">
+                <PulseDot color="bg-rupeezy-ok" />
+                <span>Listening — speak naturally</span>
               </span>
             )}
             {status === 'thinking' && (
-              <span className="inline-flex items-center gap-2">
-                <PulseDot color="bg-rupeezy-accent" /> Aria is thinking…
+              <span className="inline-flex items-center gap-2.5">
+                <PulseDot color="bg-rupeezy-accent" />
+                <span>Aria is thinking…</span>
               </span>
             )}
             {status === 'speaking' && (
-              <span className="inline-flex items-center gap-2">
-                <PulseDot color="bg-rupeezy-warm" /> Aria is speaking
+              <span className="inline-flex items-center gap-2.5">
+                <PulseDot color="bg-rupeezy-warm" />
+                <span>Aria is speaking</span>
               </span>
             )}
-            {status === 'scoring' && 'Running post-call pipeline…'}
-            {status === 'ended' && 'Call ended'}
-            {status === 'error' && <span className="text-rupeezy-hot">{errorMsg}</span>}
+            {status === 'scoring' && (
+              <span>Running post-call pipeline…</span>
+            )}
+            {status === 'ended' && <span>Call ended</span>}
+            {status === 'error' && (
+              <span className="text-rupeezy-hot">{errorMsg}</span>
+            )}
           </div>
+
           {partialText && (
-            <div className="mt-3 px-4 py-2 rounded-lg bg-rupeezy-card border border-slate-800 text-sm text-slate-400 italic max-w-md text-center">
+            <div className="mt-4 px-4 py-2.5 rounded-lg glass border border-rupeezy-border-subtle text-xs text-rupeezy-fg-muted italic max-w-md text-center">
               "{partialText}"
             </div>
           )}
 
-          {/* Manual fallback - useful if STT is flaky or user prefers to type */}
-          {(status === 'listening' || status === 'thinking' || status === 'speaking') && (
-            <div className="mt-5 flex gap-2 max-w-md w-full px-6">
+          {/* Manual fallback */}
+          {(status === 'listening' ||
+            status === 'thinking' ||
+            status === 'speaking') && (
+            <div className="mt-6 flex gap-2 max-w-md w-full">
               <input
                 type="text"
                 value={manualText}
@@ -456,26 +491,37 @@ export default function VoicePage() {
                   if (e.key === 'Enter') sendManual();
                 }}
                 placeholder="Or type if mic is flaky…"
-                className="flex-1 text-xs rounded-md bg-rupeezy-card border border-slate-700 px-3 py-2 placeholder:text-slate-600 focus:outline-none focus:border-rupeezy-accent"
+                className="flex-1 text-xs rounded-md bg-rupeezy-card border border-rupeezy-border px-3 py-2 placeholder:text-rupeezy-fg-faint focus:outline-none focus:border-rupeezy-accent transition-colors"
               />
               <button
                 type="button"
                 onClick={sendManual}
                 disabled={!manualText.trim() || status !== 'listening'}
-                className="text-xs px-3 py-2 rounded-md bg-rupeezy-accent text-white disabled:opacity-30"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-md bg-rupeezy-accent text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
               >
+                <Send size={12} />
                 Send
               </button>
             </div>
           )}
-        </div>
+        </section>
 
         {/* Transcript */}
-        <div ref={transcriptScrollerRef} className="flex-1 overflow-y-auto px-6 py-6 max-h-[40vh]">
+        <div
+          ref={transcriptScrollerRef}
+          className="flex-1 overflow-y-auto px-6 py-8 max-h-[40vh]"
+        >
           <div className="max-w-3xl mx-auto space-y-3">
             {messages.length === 0 && status === 'listening' && (
-              <div className="text-center text-slate-500 text-xs py-4">
-                Try saying: "Hi, who is this?" or "Hello, kaun bol raha hai?"
+              <div className="text-center text-rupeezy-fg-faint text-xs py-6">
+                Try saying:{' '}
+                <span className="font-mono text-rupeezy-fg-muted">
+                  "Hi, who is this?"
+                </span>{' '}
+                or{' '}
+                <span className="font-mono text-rupeezy-fg-muted">
+                  "Hello, kaun bol raha hai?"
+                </span>
               </div>
             )}
             {messages.map((m, i) => (
@@ -498,43 +544,81 @@ function Bubble({ message }: { message: VoiceMessage }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
+        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
           isUser
             ? 'bg-rupeezy-accent text-white rounded-br-sm'
-            : 'bg-rupeezy-card text-slate-100 rounded-bl-sm border border-slate-800'
+            : 'bg-rupeezy-card text-rupeezy-fg rounded-bl-sm border border-rupeezy-border'
         }`}
       >
-        {message.text || (message.pending ? '…' : '')}
+        {message.text || (message.pending ? <Pulse /> : '')}
       </div>
     </div>
   );
 }
 
-function PulseDot({ color }: { color: string }) {
-  return <span className={`inline-block w-2 h-2 rounded-full ${color} animate-pulse`} />;
+function Pulse() {
+  return (
+    <span className="inline-flex gap-1 items-center">
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
+    </span>
+  );
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  const map: Record<Status, { label: string; className: string }> = {
-    idle: { label: 'idle', className: 'bg-slate-700 text-slate-300' },
-    starting: { label: 'starting', className: 'bg-slate-700 text-slate-300' },
+function PulseDot({ color }: { color: string }) {
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${color} animate-pulse`}
+    />
+  );
+}
+
+function StatusPill({ status }: { status: Status }) {
+  const map: Record<Status, { label: string; cls: string }> = {
+    idle: {
+      label: 'idle',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-faint border-rupeezy-border',
+    },
+    starting: {
+      label: 'starting',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-muted border-rupeezy-border',
+    },
     listening: {
       label: 'listening',
-      className: 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50',
+      cls: 'bg-rupeezy-ok-faint text-rupeezy-ok border-rupeezy-ok/30',
     },
     thinking: {
       label: 'thinking',
-      className: 'bg-rupeezy-accent/20 text-indigo-300 border border-indigo-700/50',
+      cls: 'bg-rupeezy-accent-faint text-rupeezy-accent border-rupeezy-accent/30',
     },
     speaking: {
       label: 'speaking',
-      className: 'bg-rupeezy-warm/20 text-rupeezy-warm border border-amber-700/50',
+      cls: 'bg-rupeezy-warm-faint text-rupeezy-warm border-rupeezy-warm/30',
     },
-    scoring: { label: 'scoring', className: 'bg-amber-900/40 text-amber-300 border border-amber-700/50' },
-    ended: { label: 'ended', className: 'bg-slate-700 text-slate-400' },
-    error: { label: 'error', className: 'bg-red-900/40 text-red-300 border border-red-700/50' },
-    unsupported: { label: 'n/a', className: 'bg-slate-700 text-slate-400' },
+    scoring: {
+      label: 'scoring',
+      cls: 'bg-rupeezy-warm-faint text-rupeezy-warm border-rupeezy-warm/30',
+    },
+    ended: {
+      label: 'ended',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-faint border-rupeezy-border',
+    },
+    error: {
+      label: 'error',
+      cls: 'bg-rupeezy-hot-faint text-rupeezy-hot border-rupeezy-hot/30',
+    },
+    unsupported: {
+      label: 'n/a',
+      cls: 'bg-rupeezy-card text-rupeezy-fg-faint border-rupeezy-border',
+    },
   };
-  const { label, className } = map[status];
-  return <span className={`text-xs px-2.5 py-1 rounded-full font-mono ${className}`}>{label}</span>;
+  const { label, cls } = map[status];
+  return (
+    <span
+      className={`text-[10px] px-2.5 py-1 rounded-full font-mono uppercase tracking-[0.16em] border ${cls}`}
+    >
+      {label}
+    </span>
+  );
 }

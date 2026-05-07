@@ -1,9 +1,18 @@
 import type { Bucket, LeadRow, NextActionType } from '../lib/api';
 
-const BUCKET_BADGE: Record<Bucket, { label: string; className: string }> = {
-  hot: { label: 'HOT', className: 'bg-rupeezy-hot/20 text-rupeezy-hot border-rupeezy-hot/40' },
-  warm: { label: 'WARM', className: 'bg-rupeezy-warm/20 text-rupeezy-warm border-rupeezy-warm/40' },
-  cold: { label: 'COLD', className: 'bg-rupeezy-cold/20 text-rupeezy-cold border-rupeezy-cold/40' },
+const BUCKET_BADGE: Record<Bucket, { label: string; cls: string }> = {
+  hot: {
+    label: 'HOT',
+    cls: 'bg-rupeezy-hot-faint text-rupeezy-hot border-rupeezy-hot/30',
+  },
+  warm: {
+    label: 'WARM',
+    cls: 'bg-rupeezy-warm-faint text-rupeezy-warm border-rupeezy-warm/30',
+  },
+  cold: {
+    label: 'COLD',
+    cls: 'bg-rupeezy-cold-faint text-rupeezy-cold border-rupeezy-cold/30',
+  },
 };
 
 const NEXT_ACTION_LABEL: Record<NextActionType, string> = {
@@ -27,7 +36,7 @@ export default function LeadsTable({
 }) {
   if (loading) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-rupeezy-card p-12 text-center text-slate-500 text-sm">
+      <div className="glass-card rounded-2xl p-16 text-center text-rupeezy-fg-faint text-sm">
         Loading leads…
       </div>
     );
@@ -35,26 +44,29 @@ export default function LeadsTable({
 
   if (leads.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-rupeezy-card p-12 text-center">
-        <div className="text-slate-300 text-sm font-medium mb-1">No leads yet</div>
-        <div className="text-slate-500 text-xs">
-          Run a chat conversation and end it — the lead will appear here once scored.
+      <div className="glass-card rounded-2xl p-16 text-center">
+        <div className="font-serif text-lg text-rupeezy-fg mb-2">
+          No leads yet
+        </div>
+        <div className="text-rupeezy-fg-faint text-xs leading-relaxed max-w-sm mx-auto">
+          Start a chat or upload a batch CSV — qualified leads appear here once
+          the agent has scored them.
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-rupeezy-card overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-rupeezy-surface border-b border-slate-800">
-          <tr className="text-left text-[10px] uppercase tracking-widest text-slate-500">
-            <th className="px-4 py-3 font-medium">Bucket</th>
-            <th className="px-4 py-3 font-medium">Summary</th>
-            <th className="px-4 py-3 font-medium">Lang</th>
-            <th className="px-4 py-3 font-medium">Dur</th>
-            <th className="px-4 py-3 font-medium">Next</th>
-            <th className="px-4 py-3 font-medium">When</th>
+    <div className="glass-card rounded-2xl overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="text-left">
+            <Th>Bucket</Th>
+            <Th>Summary</Th>
+            <Th>Lang</Th>
+            <Th align="right">Dur</Th>
+            <Th>Next action</Th>
+            <Th>When</Th>
           </tr>
         </thead>
         <tbody>
@@ -65,36 +77,42 @@ export default function LeadsTable({
               <tr
                 key={lead.conv_id}
                 onClick={() => onSelect(lead.conv_id)}
-                className={`border-b border-slate-800/60 last:border-b-0 cursor-pointer transition-colors ${
-                  isSelected ? 'bg-rupeezy-accent/10' : 'hover:bg-rupeezy-surface/60'
+                className={`group border-t border-rupeezy-border-subtle cursor-pointer transition-colors ${
+                  isSelected
+                    ? 'bg-rupeezy-accent-faint'
+                    : 'hover:bg-white/[0.02]'
                 }`}
               >
-                <td className="px-4 py-3 align-top">
+                <td className="px-5 py-4 align-top">
                   <span
-                    className={`text-[10px] font-bold tracking-wider px-2 py-1 rounded-md border ${badge.className}`}
+                    className={`inline-block text-[10px] font-medium tracking-[0.16em] px-2 py-1 rounded-md border ${badge.cls}`}
                   >
                     {badge.label}
                   </span>
-                  <div className="text-[10px] text-slate-500 font-mono mt-1">
+                  <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-1.5 tabular-nums">
                     {Math.round(lead.confidence * 100)}%
                   </div>
                 </td>
-                <td className="px-4 py-3 align-top max-w-md">
-                  <div className="text-slate-100 leading-snug line-clamp-2">{lead.summary_short}</div>
-                  <div className="text-[10px] text-slate-500 font-mono mt-1">{lead.conv_id}</div>
+                <td className="px-5 py-4 align-top max-w-md">
+                  <div className="text-sm text-rupeezy-fg leading-snug line-clamp-2">
+                    {lead.summary_short}
+                  </div>
+                  <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-1.5">
+                    {lead.conv_id}
+                  </div>
                 </td>
-                <td className="px-4 py-3 align-top text-slate-400 text-xs uppercase">
+                <td className="px-5 py-4 align-top text-rupeezy-fg-muted text-xs lowercase">
                   {lead.language_used}
                 </td>
-                <td className="px-4 py-3 align-top text-slate-400 text-xs font-mono whitespace-nowrap">
+                <td className="px-5 py-4 align-top text-rupeezy-fg-muted text-xs font-mono whitespace-nowrap text-right tabular-nums">
                   {lead.duration_sec}s
                 </td>
-                <td className="px-4 py-3 align-top">
-                  <span className="text-xs text-slate-300 whitespace-nowrap">
+                <td className="px-5 py-4 align-top">
+                  <span className="text-xs text-rupeezy-fg whitespace-nowrap">
                     {NEXT_ACTION_LABEL[lead.next_action]}
                   </span>
                 </td>
-                <td className="px-4 py-3 align-top text-slate-500 text-xs whitespace-nowrap">
+                <td className="px-5 py-4 align-top text-rupeezy-fg-faint text-xs whitespace-nowrap">
                   {formatRelative(lead.started_at)}
                 </td>
               </tr>
@@ -103,6 +121,24 @@ export default function LeadsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function Th({
+  children,
+  align = 'left',
+}: {
+  children: React.ReactNode;
+  align?: 'left' | 'right';
+}) {
+  return (
+    <th
+      className={`px-5 py-3.5 text-[10px] uppercase tracking-[0.16em] font-medium text-rupeezy-fg-faint bg-rupeezy-surface ${
+        align === 'right' ? 'text-right' : 'text-left'
+      }`}
+    >
+      {children}
+    </th>
   );
 }
 
