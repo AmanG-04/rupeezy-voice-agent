@@ -203,17 +203,39 @@ export function endConversationBeacon(
   convId: string,
   endedBy: 'agent' | 'lead' | 'dropped' = 'dropped',
 ): void {
+  const url = `${BASE}/${convId}/end`;
+  const payload = JSON.stringify({ ended_by: endedBy });
+
+  // Prefer navigator.sendBeacon — purpose-built to fire reliably during
+  // page unload / SPA navigation. The browser queues it on its own
+  // background dispatcher so the request survives even if the React
+  // component unmounts the same tick. fetch+keepalive is best-effort
+  // and got dropped in ~50% of fast back-clicks during testing.
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    try {
+      const blob = new Blob([payload], { type: 'application/json' });
+      const ok = navigator.sendBeacon(url, blob);
+      if (ok) return;
+      // Browser refused to enqueue (rare, e.g. quota exhaustion). Fall
+      // through to fetch+keepalive.
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Fallback: fetch+keepalive. Less reliable than sendBeacon but still
+  // covers the case where sendBeacon isn't available (very old browsers).
   try {
-    void fetch(`${BASE}/${convId}/end`, {
+    void fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ended_by: endedBy }),
+      body: payload,
       keepalive: true,
     }).catch(() => {
-      /* swallow — best-effort */
+      /* swallow */
     });
   } catch {
-    /* swallow — best-effort */
+    /* swallow */
   }
 }
 
@@ -399,12 +421,20 @@ export async function streamTurn(
     onConvReplaced?: (newConvId: string) => void;
   },
   signal?: AbortSignal,
+  /** Optional language hint from the voice/chat picker. Passed to the
+   * backend so Gemini knows the user picked this language even when the
+   * actual text is a single romanised regional word ("Bhalobashi"). */
+  opts?: { lang?: string },
 ): Promise<void> {
+  const body = JSON.stringify({
+    text: userText,
+    ...(opts?.lang ? { lang: opts.lang } : {}),
+  });
   const fetchTurn = (cid: string) =>
     fetch(`${BASE}/${cid}/turn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ text: userText }),
+      body,
       signal,
     });
 

@@ -61,18 +61,36 @@ export default function ChatPage() {
   // Hard cleanup on unmount — back arrow, voice link, dashboard link, etc.
   // Aborts any in-flight stream and tells the backend to end the
   // conversation so memory isn't leaked across navigations.
+  // Belt-and-braces: also pagehide / visibilitychange (tab close, hard
+  // refresh). Both fire endConversationBeacon — idempotent on the backend.
   useEffect(() => {
+    const fireEnd = () => {
+      const cid = convIdRef.current;
+      if (
+        cid &&
+        statusRef.current !== 'ended' &&
+        statusRef.current !== 'scoring'
+      ) {
+        endConversationBeacon(cid, 'dropped');
+      }
+    };
+    const onPageHide = () => fireEnd();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') fireEnd();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
       try {
         turnAbortRef.current?.abort();
       } catch {
         /* ignore */
       }
       turnAbortRef.current = null;
-      const cid = convIdRef.current;
-      if (cid && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-        endConversationBeacon(cid, 'dropped');
-      }
+      fireEnd();
     };
   }, []);
 

@@ -84,6 +84,16 @@ export default function VoicePage() {
   // the actual per-sentence retry + fallback lives inside EdgeTtsSpeaker.
   // Never gates which speaker class is used (always EdgeTtsSpeaker).
   const edgeTtsOkRef = useRef<boolean | null>(null);
+  // Ref to the latest startRecognition() so dispatchUtterance can call it
+  // from inside an empty-deps useCallback without going stale. Populated
+  // by an effect once startRecognition is defined further down the file.
+  const startRecognitionRef = useRef<(() => void) | null>(null);
+  // Set to false on unmount so any pending setTimeout callbacks (auto-
+  // restart, retry-restart) bail out instead of resurrecting recognition
+  // after the user clicked back. Without this, Chrome's mic indicator
+  // stays lit after navigation and re-entering /voice doesn't get a fresh
+  // permission grant until the page is hard-refreshed.
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     convIdRef.current = convId;
@@ -96,6 +106,11 @@ export default function VoicePage() {
   }, [lang]);
 
   useEffect(() => {
+    // Re-mounting after a previous unmount (e.g. user clicks back, then
+    // re-enters /voice) needs the flag flipped back on. Without this the
+    // freshly-mounted instance treats itself as already-cancelled and
+    // skips every async restart path.
+    mountedRef.current = true;
     const recOk = isSpeechRecognitionAvailable();
     const synthOk = isSpeechSynthesisAvailable();
     log('capability check:', { recognition: recOk, synthesis: synthOk });
@@ -118,7 +133,39 @@ export default function VoicePage() {
   // stop holding the mic, the AudioContext must be torn down, and any
   // in-flight streamTurn fetch must be aborted.
   useEffect(() => {
+    // Belt-and-braces: also fire endConversationBeacon on `pagehide` and
+    // `visibilitychange` (tab close, hard refresh, mobile background).
+    // Some browsers run pagehide BEFORE the React cleanup, which is when
+    // sendBeacon is most reliably accepted. Both call paths are
+    // idempotent on the backend (second /end is a no-op).
+    const fireEnd = () => {
+      const cid = convIdRef.current;
+      if (
+        cid &&
+        statusRef.current !== 'ended' &&
+        statusRef.current !== 'scoring'
+      ) {
+        endConversationBeacon(cid, 'dropped');
+      }
+    };
+    const onPageHide = () => fireEnd();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') fireEnd();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+
+      // 0. Tell pending setTimeout callbacks (auto-restart, retry-restart,
+      // any onend handler closures) to bail. This is what stops the mic
+      // indicator from staying lit after the user clicks back — without
+      // it, an in-flight recognition.onend timer can call r.start() AFTER
+      // unmount, which Chrome then holds the mic active for.
+      mountedRef.current = false;
+
       // 1. Kill the mic + STT.
       try {
         recognitionRef.current?.abort();
@@ -140,12 +187,12 @@ export default function VoicePage() {
       }
       turnAbortRef.current = null;
 
-      // 4. Tell the backend to end the conversation. Beacon (keepalive)
-      // so the request survives the page tearing down. Don't await.
-      const cid = convIdRef.current;
-      if (cid && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-        endConversationBeacon(cid, 'dropped');
-      }
+      // 4. Tell the backend to end the conversation via navigator.sendBeacon
+      // (purpose-built for unmount/unload, queues on a background dispatcher
+      // so it survives the React tree tearing down). Idempotent — if the
+      // pagehide handler above already fired, this is a no-op on the
+      // backend.
+      fireEnd();
 
       isReplyingRef.current = false;
     };
@@ -159,6 +206,21 @@ export default function VoicePage() {
       return;
     }
     setStatus('thinking');
+    // Hard-mute the mic the moment we dispatch — through thinking AND
+    // speaking, until onAllDone restarts it. This stops:
+    //   1. Aria hearing her own neural-TTS audio loop back through the
+    //      user's mic and treating it as a new utterance
+    //   2. The browser's mic LED staying lit during reply, which looks
+    //      sketchy ("why is it still listening?")
+    //   3. Stray background noise being captured during the ~2-3s
+    //      thinking gap before audio starts
+    isReplyingRef.current = true;
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+
     const objection = detectObjection(text) ?? undefined;
     setMessages((prev) => [
       ...prev,
@@ -201,13 +263,31 @@ export default function VoicePage() {
       onAllDone: () => {
         log('TTS done, returning to listening');
         isReplyingRef.current = false;
+        // If the user clicked back mid-reply, we don't want to resurrect
+        // the recognizer here — the unmount cleanup already aborted it
+        // and any new .start() would re-grab the mic.
+        if (!mountedRef.current) {
+          log('recognition: skip resume from onAllDone (unmounted)');
+          return;
+        }
         if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
           setStatus('listening');
+          let resumed = false;
           try {
             recognitionRef.current?.start();
-            log('recognition: kicked from onAllDone');
-          } catch {
-            /* already running */
+            resumed = true;
+            log('recognition: resumed from onAllDone');
+          } catch (err) {
+            log('recognition: resume threw, will recreate', err);
+          }
+          if (!resumed) {
+            try {
+              recognitionRef.current?.abort();
+            } catch {
+              /* ignore */
+            }
+            recognitionRef.current = null;
+            startRecognitionRef.current?.();
           }
         }
       },
@@ -261,6 +341,7 @@ export default function VoicePage() {
           },
         },
         controller.signal,
+        { lang: langRef.current },
       );
       log('streamTurn done, accumulated chars:', accumulated.length);
     } catch (e) {
@@ -356,28 +437,43 @@ export default function VoicePage() {
     };
 
     r.onend = () => {
-      log('recognition: onend, current status:', statusRef.current);
-      // Restart whenever the call is still active. Includes 'thinking' and
-      // 'speaking' — the recognizer often ends mid-reply, but we want it
-      // back up the moment Aria finishes so the user's next utterance is
-      // captured immediately.
-      const stillActive =
-        statusRef.current === 'listening' ||
-        statusRef.current === 'speaking' ||
-        statusRef.current === 'thinking';
-      if (stillActive) {
+      log('recognition: onend, status:', statusRef.current,
+          'replying:', isReplyingRef.current);
+      // CRITICAL: do NOT auto-restart while Aria is replying (thinking or
+      // speaking). The user explicitly wants the mic muted during her
+      // turn. The onAllDone callback in dispatchUtterance is responsible
+      // for restarting recognition once she finishes — that's the only
+      // path back to a hot mic.
+      //
+      // If onend fires while we're NOT in a reply (Web Speech engines
+      // sometimes auto-stop after 60s of silence), we restart so the
+      // user can keep talking without re-clicking the mic button.
+      if (isReplyingRef.current) {
+        log('recognition: skip auto-restart (Aria is replying)');
+        return;
+      }
+      if (!mountedRef.current) {
+        log('recognition: skip auto-restart (component unmounted)');
+        return;
+      }
+      if (statusRef.current === 'listening') {
         try {
           r.start();
-          log('recognition: auto-restarted');
+          log('recognition: auto-restarted (silence-recovery)');
         } catch (err) {
-          // Most common: 'start' called while engine still busy. Retry once
-          // after a short tick — by then the engine is idle.
           log('recognition: restart failed, will retry', err);
           setTimeout(() => {
+            // The component may have unmounted in the 250ms window.
+            // If so, bail without restarting — otherwise we resurrect the
+            // mic AFTER the user has navigated away and Chrome keeps the
+            // indicator lit until the page is refreshed.
+            if (!mountedRef.current) {
+              log('recognition: skip retry-restart (component unmounted)');
+              return;
+            }
             if (
-              statusRef.current === 'listening' ||
-              statusRef.current === 'speaking' ||
-              statusRef.current === 'thinking'
+              statusRef.current === 'listening' &&
+              !isReplyingRef.current
             ) {
               try {
                 r.start();
@@ -398,6 +494,13 @@ export default function VoicePage() {
       log('recognition: start threw', e);
     }
   }, [dispatchUtterance]);
+
+  // Keep the ref in sync so dispatchUtterance's onAllDone closure (which
+  // is a stable empty-deps useCallback) always invokes the freshest
+  // startRecognition. Avoids stale-closure bugs when langRef changes.
+  useEffect(() => {
+    startRecognitionRef.current = startRecognition;
+  }, [startRecognition]);
 
   async function startCall() {
     setStatus('starting');

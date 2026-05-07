@@ -59,6 +59,13 @@ class CreateConversationResponse(BaseModel):
 
 class TurnRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+    # Optional language hint from the frontend voice/chat picker. When set,
+    # tells the agent to reply in this language regardless of what the
+    # user's text is in. Critical for romanised regional words ("Bhalobashi"
+    # could be Bengali or just Latin gibberish — the picker disambiguates).
+    # Accepts BCP-47 codes ("bn-IN", "en-IN") or short keys ("bengali",
+    # "english"). Empty / unrecognised falls through to language detection.
+    lang: str | None = Field(default=None, max_length=20)
 
 
 class EndRequest(BaseModel):
@@ -175,9 +182,11 @@ async def turn(conv_id: str, body: TurnRequest):
     if not user_text:
         raise HTTPException(400, "empty text")
 
+    lang_hint = (body.lang or "").strip() or None
+
     async def gen() -> AsyncIterator[dict[str, str]]:
         try:
-            async for chunk in stream_user_turn(conv_id, user_text):
+            async for chunk in stream_user_turn(conv_id, user_text, lang_hint=lang_hint):
                 # Each event is JSON-encoded so newlines / quotes don't break SSE framing.
                 yield {"event": "token", "data": json.dumps({"text": chunk})}
         except ValueError as e:

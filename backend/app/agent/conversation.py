@@ -64,6 +64,33 @@ _RAG_TRIGGER_PHRASES = (
     "think about it", "send me", "ya think",
 )
 
+# Map both BCP-47 codes (from voice picker) and short keys (from CSV
+# language_pref column) to a human-readable label for the per-turn
+# language override directive injected into the system prompt.
+_LANG_LABELS: dict[str, str] = {
+    # English variants
+    "en-in": "English",
+    "en-us": "English",
+    "en-gb": "English",
+    "english": "English",
+    # Hindi
+    "hi-in": "Hindi",
+    "hindi": "Hindi",
+    # Hinglish (Latin-script Hindi)
+    "hinglish": "Hinglish (Latin-script Hindi)",
+    # Regional
+    "ta-in": "Tamil",
+    "tamil": "Tamil",
+    "te-in": "Telugu",
+    "telugu": "Telugu",
+    "mr-in": "Marathi",
+    "marathi": "Marathi",
+    "gu-in": "Gujarati",
+    "gujarati": "Gujarati",
+    "bn-in": "Bengali",
+    "bengali": "Bengali",
+}
+
 
 def _should_retrieve(user_text: str, conv: "Conversation") -> bool:
     """Decide whether to spend an embedding API call on this turn.
@@ -261,12 +288,19 @@ async def stream_user_turn(
     user_text: str,
     *,
     k: int = 2,
+    lang_hint: str | None = None,
 ) -> AsyncIterator[str]:
     """Process one user turn. Yields response token chunks as they stream.
 
     Side effects:
       - Appends the user message to conversation history immediately.
       - Appends the (full) assistant message to history once streaming completes.
+
+    `lang_hint` is the frontend voice/chat picker's current language. When
+    set, it's injected into the system_instruction as a per-turn directive
+    so Gemini replies in that language regardless of what user_text looks
+    like. Disambiguates romanised regional words ("Bhalobashi") that would
+    otherwise be misclassified as English.
     """
     _ensure_genai()
     store = get_store()
@@ -311,6 +345,48 @@ async def stream_user_turn(
 
     parts = build_prompt_parts(retriever, retrieved_hits=hits, lead_context=ctx)
     system_instruction = parts.assemble()
+
+    # Per-turn language override from the frontend picker. The frontend
+    # speaks/listens in this language; the user CHOSE it. Whatever the
+    # user's text looks like (script, romanisation, isolated words),
+    # Gemini must reply in this language.
+    pretty = _LANG_LABELS.get((lang_hint or "").strip().lower(), None)
+    log.info(
+        "turn lang_hint=%r -> pretty=%r (will inject override: %s)",
+        lang_hint, pretty, bool(pretty),
+    )
+    if pretty:
+        # NOTE: keep this as ONE single multi-line string. The previous
+        # version used Python implicit string concatenation across lines
+        # mixed with `f"=" * 60`, which Python parses as
+        # `(f"...\n\n=" * 60)` — i.e. it duplicated the entire prepended
+        # persona 60 times, producing a 1.2 MB prompt that confused the
+        # model into refusing every language.
+        sep = "=" * 60
+        override = (
+            f"\n\n{sep}\n\n"
+            f"# THIS TURN — LANGUAGE OVERRIDE (highest priority)\n\n"
+            f"The user has selected **{pretty}** as their conversation "
+            f"language via the voice/chat picker. You MUST reply in "
+            f"{pretty} for this turn, regardless of what the user's most "
+            f"recent message looks like — it may be a single romanised "
+            f"word, a script you might guess wrong about, or even silence.\n\n"
+            f"The Appendix §1.2 opener template has a {pretty} version. "
+            f"Use it (paraphrased) on the first turn; paraphrase naturally "
+            f"on later turns.\n\n"
+            f"Forbidden responses (these violate this directive):\n"
+            f"  - 'I don't speak {pretty}'\n"
+            f"  - 'I can speak English or Hindi'\n"
+            f"  - 'Would you prefer to continue in English'\n"
+            f"  - any deferral that suggests {pretty} is unsupported\n\n"
+            f"{pretty} IS supported. The §1.2 template proves you can "
+            f"produce it. This per-turn override SUPERSEDES any "
+            f"compliance rule earlier in the prompt that says "
+            f"'never insist on English' or 'offer a language-matched "
+            f"callback' — those apply only when the user has not given "
+            f"an explicit language preference. They have."
+        )
+        system_instruction = system_instruction + override
 
     settings = get_settings()
     chain = settings.chat_model_chain
