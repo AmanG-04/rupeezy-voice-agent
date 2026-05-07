@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   ArrowUpRight,
@@ -7,13 +7,13 @@ import {
   LayoutDashboard,
   CircleCheck,
   CircleAlert,
-  PlayCircle,
-  Loader2,
+  Upload,
   ChevronRight,
 } from 'lucide-react';
 import { Brand } from './components/Brand';
 import PipelineDiagram from './components/PipelineDiagram';
-import { dialNextLead, fetchWithRetry, seedDemoLeads } from './lib/api';
+import UploadLeadsModal from './components/UploadLeadsModal';
+import { fetchWithRetry } from './lib/api';
 import { api } from './lib/apiBase';
 
 interface Health {
@@ -30,14 +30,10 @@ interface Version {
 }
 
 export default function App() {
-  const navigate = useNavigate();
   const [health, setHealth] = useState<Health | null>(null);
   const [version, setVersion] = useState<Version | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [demoState, setDemoState] = useState<
-    'idle' | 'seeding' | 'dialing' | 'done' | 'error'
-  >('idle');
-  const [demoMessage, setDemoMessage] = useState<string>('');
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -50,34 +46,6 @@ export default function App() {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
-
-  async function runDemo() {
-    if (demoState === 'seeding' || demoState === 'dialing') return;
-    setDemoState('seeding');
-    setDemoMessage('Seeding 4 demo leads…');
-    try {
-      const r = await seedDemoLeads();
-      setDemoMessage(
-        `${r.enqueued} new lead${r.enqueued === 1 ? '' : 's'} queued. Opening dashboard…`,
-      );
-      // Hand off to the dashboard so the funnel is visible while we dial.
-      navigate('/dashboard');
-      setDemoState('dialing');
-      // Drive dial-next in a loop until idle. Same cadence as the modal.
-      // Spaced out so the dashboard's 5s auto-refresh actually shows the
-      // funnel populating one bucket at a time.
-      while (true) {
-        const res = await dialNextLead();
-        if (res.idle) break;
-        await new Promise((s) => setTimeout(s, 4000));
-      }
-      setDemoState('done');
-      setDemoMessage('All 4 demo leads processed.');
-    } catch (e) {
-      setDemoState('error');
-      setDemoMessage((e as Error).message);
-    }
-  }
 
   return (
     <div className="min-h-screen flex flex-col bg-rupeezy-ink relative overflow-hidden">
@@ -127,25 +95,17 @@ export default function App() {
               language, and queue capacity. This agent removes those bottlenecks.
             </p>
 
-            {/* Demo CTA — one click seeds 4 personas, navigates to dashboard,
-                drives dial-next until idle. The fastest path to "see it work". */}
+            {/* Primary CTA — opens the same upload-leads modal the dashboard
+                uses. Judges drop a CSV (or download the rotating template),
+                hit "Process queue", funnel populates live. */}
             <div className="mt-10 flex flex-wrap items-center gap-4">
               <button
                 type="button"
-                onClick={() => void runDemo()}
-                disabled={demoState === 'seeding' || demoState === 'dialing'}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-md bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity shadow-lifted"
+                onClick={() => setUploadOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-md bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 transition-opacity shadow-lifted"
               >
-                {demoState === 'seeding' || demoState === 'dialing' ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <PlayCircle size={15} />
-                )}
-                {demoState === 'idle' && 'Run live demo'}
-                {demoState === 'seeding' && 'Seeding leads…'}
-                {demoState === 'dialing' && 'Dialing 4 leads…'}
-                {demoState === 'done' && 'Run again'}
-                {demoState === 'error' && 'Retry'}
+                <Upload size={15} />
+                Upload leads
               </button>
               <Link
                 to="/voice"
@@ -154,17 +114,6 @@ export default function App() {
                 Or talk to Aria yourself
                 <ArrowUpRight size={13} />
               </Link>
-              {demoMessage && (
-                <span
-                  className={`text-xs font-mono ${
-                    demoState === 'error'
-                      ? 'text-rupeezy-hot'
-                      : 'text-rupeezy-fg-faint'
-                  }`}
-                >
-                  {demoMessage}
-                </span>
-              )}
             </div>
           </div>
         </section>
@@ -268,6 +217,19 @@ export default function App() {
           <span className="font-mono">{deployTag()}</span>
         </div>
       </footer>
+
+      {/* Upload-leads modal — same component the dashboard uses, so judges
+          can drop a CSV without leaving the landing page. onAfterDial is
+          a no-op here; the dashboard is where the funnel actually lives,
+          but processing in the background still produces handoffs. */}
+      {uploadOpen && (
+        <UploadLeadsModal
+          onClose={() => setUploadOpen(false)}
+          onAfterDial={() => {
+            /* no-op — landing page doesn't render the funnel */
+          }}
+        />
+      )}
     </div>
   );
 }
