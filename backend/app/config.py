@@ -31,19 +31,6 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = Field(
         default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL"
     )
-    gemini_live_model: str = Field(
-        default="gemini-2.5-flash-native-audio", alias="GEMINI_LIVE_MODEL"
-    )
-
-    # --- LiveKit ---
-    livekit_url: str = Field(default="", alias="LIVEKIT_URL")
-    livekit_api_key: str = Field(default="", alias="LIVEKIT_API_KEY")
-    livekit_api_secret: str = Field(default="", alias="LIVEKIT_API_SECRET")
-
-    # --- Supabase ---
-    supabase_url: str = Field(default="", alias="SUPABASE_URL")
-    supabase_anon_key: str = Field(default="", alias="SUPABASE_ANON_KEY")
-    supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
 
     # --- Backend runtime ---
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
@@ -53,12 +40,12 @@ class Settings(BaseSettings):
         default="http://localhost:5173", alias="BACKEND_CORS_ORIGINS"
     )
 
-    # --- Local DB (Phases 1–3) ---
+    # --- Storage ---
     database_url: str = Field(
         default="sqlite:///./backend/data/rupeezy.db", alias="DATABASE_URL"
     )
 
-    # --- WhatsApp ---
+    # --- WhatsApp (mocked — Cloud API wiring stubbed but not invoked) ---
     whatsapp_mode: str = Field(default="mock", alias="WHATSAPP_MODE")
 
     @property
