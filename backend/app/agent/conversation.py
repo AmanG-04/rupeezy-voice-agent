@@ -64,6 +64,91 @@ _RAG_TRIGGER_PHRASES = (
     "think about it", "send me", "ya think",
 )
 
+# Romanised regional words that strongly imply the speaker's language.
+# When the picker says English but the user types one of these, we
+# trust the script over the picker. Casefold + strip first.
+_ROMAN_LANG_HINTS: dict[str, str] = {
+    # Bengali
+    "bhalobashi": "bn-IN",
+    "ami": "bn-IN",
+    "tomake": "bn-IN",
+    "kemon": "bn-IN",
+    "achho": "bn-IN",
+    # Tamil
+    "vanakkam": "ta-IN",
+    "epadi": "ta-IN",
+    "irukenga": "ta-IN",
+    "neenga": "ta-IN",
+    "namma": "ta-IN",
+    # Telugu
+    "namaste": "hi-IN",  # ambiguous Hindi/Telugu - default Hindi
+    "ela": "te-IN",
+    "unnaru": "te-IN",
+    "meeru": "te-IN",
+    # Marathi
+    "kasa": "mr-IN",
+    "kashi": "mr-IN",
+    "ahat": "mr-IN",
+    "tumhi": "mr-IN",
+    # Gujarati
+    "kem": "gu-IN",
+    "chho": "gu-IN",
+    "majama": "gu-IN",
+    "su": "gu-IN",
+}
+
+
+def _detect_lang_from_text(text: str) -> str | None:
+    """Detect language from a user's utterance text. Returns a BCP-47
+    code or None if undetectable. Order:
+
+    1. Script range — Devanagari/Tamil/Telugu/Bengali/Gujarati Unicode
+       blocks are unambiguous and override anything else.
+    2. Romanised regional word match — for Latin-script transliterations
+       like "Bhalobashi" that the picker would label as English.
+    3. None — fall back to the caller's existing lang_hint (the picker).
+
+    The conversation engine prefers this detected lang over the picker
+    hint when both are available, so the lead can switch languages
+    mid-call without touching the picker.
+    """
+    if not text:
+        return None
+    # Script-based — first non-whitespace native-script char wins.
+    for ch in text:
+        cp = ord(ch)
+        # Tamil    (U+0B80–U+0BFF)
+        if 0x0B80 <= cp <= 0x0BFF:
+            return "ta-IN"
+        # Telugu   (U+0C00–U+0C7F)
+        if 0x0C00 <= cp <= 0x0C7F:
+            return "te-IN"
+        # Bengali  (U+0980–U+09FF)
+        if 0x0980 <= cp <= 0x09FF:
+            return "bn-IN"
+        # Gujarati (U+0A80–U+0AFF)
+        if 0x0A80 <= cp <= 0x0AFF:
+            return "gu-IN"
+        # Devanagari (U+0900–U+097F) — could be Hindi OR Marathi. Both
+        # use "नमस्कार" so we exclude it from the Marathi-specific sniff;
+        # rely on words that are uniquely Marathi (काय/आहे/मला/तुम्ही).
+        if 0x0900 <= cp <= 0x097F:
+            t = text.lower()
+            if any(m in t for m in ("काय", "आहे", "मला", "तुम्ही", "कसे", "कशी")):
+                return "mr-IN"
+            return "hi-IN"
+
+    # Romanised hint match. Tokenise on non-alphanumerics, casefold.
+    import re as _re
+
+    tokens = {tok for tok in _re.split(r"[^a-zA-Z]+", text.lower()) if tok}
+    for tok in tokens:
+        if tok in _ROMAN_LANG_HINTS:
+            return _ROMAN_LANG_HINTS[tok]
+
+    return None
+
+
 # Map both BCP-47 codes (from voice picker) and short keys (from CSV
 # language_pref column) to a human-readable label for the per-turn
 # language override directive injected into the system prompt.
@@ -346,14 +431,20 @@ async def stream_user_turn(
     parts = build_prompt_parts(retriever, retrieved_hits=hits, lead_context=ctx)
     system_instruction = parts.assemble()
 
-    # Per-turn language override from the frontend picker. The frontend
-    # speaks/listens in this language; the user CHOSE it. Whatever the
-    # user's text looks like (script, romanisation, isolated words),
-    # Gemini must reply in this language.
-    pretty = _LANG_LABELS.get((lang_hint or "").strip().lower(), None)
+    # Per-turn language resolution.
+    # Order of precedence:
+    #   1. Detected language from THIS turn's text (script range or
+    #      romanised hint like "Bhalobashi"). Trumps everything else
+    #      because it represents what the lead just said.
+    #   2. Picker hint passed by the frontend (lang_hint).
+    # Effect: lead can switch languages mid-call without touching the
+    # picker; we follow whatever they spoke.
+    detected = _detect_lang_from_text(user_text)
+    effective_lang = detected or lang_hint
+    pretty = _LANG_LABELS.get((effective_lang or "").strip().lower(), None)
     log.info(
-        "turn lang_hint=%r -> pretty=%r (will inject override: %s)",
-        lang_hint, pretty, bool(pretty),
+        "turn lang_hint=%r detected=%r -> pretty=%r (override: %s)",
+        lang_hint, detected, pretty, bool(pretty),
     )
     if pretty:
         # NOTE: keep this as ONE single multi-line string. The previous

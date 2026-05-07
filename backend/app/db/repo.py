@@ -282,17 +282,43 @@ def list_logs_for_conversation(conv_id: str) -> list[WhatsappLog]:
 
 
 def funnel_counts() -> dict[str, int]:
-    """Returns counts for the conversion funnel."""
+    """Returns counts for the conversion funnel.
+
+    Implemented as TWO aggregate queries (one per table) instead of five
+    sequential `.count()` calls. On Supabase's free-tier transaction
+    pooler, sequential count queries consume one connection per
+    round-trip and starve other concurrent dashboard polls under burst
+    load — that produces intermittent 500 errors when the connection
+    pool is briefly empty. Two aggregate queries cuts the round-trip
+    count by 60% and keeps the connection held for the minimum time.
+    """
+    from sqlalchemy import case, func
+
     with session_scope() as s:
-        contacted = s.query(ConversationRow).count()
-        engaged = (
-            s.query(ConversationRow)
-            .filter(ConversationRow.duration_sec > 30)
-            .count()
-        )
-        hot = s.query(HandoffRow).filter(HandoffRow.bucket == "hot").count()
-        warm = s.query(HandoffRow).filter(HandoffRow.bucket == "warm").count()
-        cold = s.query(HandoffRow).filter(HandoffRow.bucket == "cold").count()
+        # One row, three values: total conversations + count(duration > 30).
+        conv_row = s.execute(
+            select(
+                func.count(ConversationRow.id).label("contacted"),
+                func.count(
+                    case((ConversationRow.duration_sec > 30, 1))
+                ).label("engaged"),
+            )
+        ).one()
+
+        # One row, three values: hot/warm/cold counts via FILTER.
+        h_row = s.execute(
+            select(
+                func.count(case((HandoffRow.bucket == "hot", 1))).label("hot"),
+                func.count(case((HandoffRow.bucket == "warm", 1))).label("warm"),
+                func.count(case((HandoffRow.bucket == "cold", 1))).label("cold"),
+            )
+        ).one()
+
+    contacted = int(conv_row.contacted or 0)
+    engaged = int(conv_row.engaged or 0)
+    hot = int(h_row.hot or 0)
+    warm = int(h_row.warm or 0)
+    cold = int(h_row.cold or 0)
 
     return {
         "contacted": contacted,

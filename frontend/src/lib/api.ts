@@ -426,6 +426,12 @@ export async function streamTurn(
      * and a new conv_id was minted to retry the turn. The frontend should
      * update its stored convId to this new value. */
     onConvReplaced?: (newConvId: string) => void;
+    /** Called once at the start of the stream with the language Gemini
+     * resolved for THIS turn (script auto-detection beats the picker
+     * value). Frontend should use this for the TTS voice selection so
+     * that "Bhalobashi" produces a Bengali voice even when the picker
+     * is on English. */
+    onLang?: (lang: string) => void;
   },
   signal?: AbortSignal,
   /** Optional language hint from the voice/chat picker. Passed to the
@@ -525,6 +531,13 @@ export async function streamTurn(
           handlers.onToken(parsed.text);
         } catch {
           handlers.onToken(event.data);
+        }
+      } else if (event.event === 'lang') {
+        try {
+          const parsed = JSON.parse(event.data) as { lang: string };
+          handlers.onLang?.(parsed.lang);
+        } catch {
+          /* ignore malformed lang event */
         }
       } else if (event.event === 'done') {
         handlers.onDone?.();

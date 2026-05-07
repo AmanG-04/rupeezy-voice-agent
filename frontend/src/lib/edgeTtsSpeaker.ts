@@ -57,6 +57,17 @@ export class EdgeTtsSpeaker {
     this.opts = opts;
   }
 
+  /** Update the BCP-47 language code mid-stream. Used when the backend
+   * detects the user spoke a different language than the picker
+   * suggested (e.g. user typed "Bhalobashi" while picker was on
+   * en-IN — backend emits a `lang: bn-IN` event and the speaker
+   * switches to the Bengali neural voice for THIS turn's audio). */
+  setLang(lang: string): void {
+    if (lang && lang !== this.opts.lang) {
+      this.opts.lang = lang;
+    }
+  }
+
   private getCtx(): AudioContext {
     if (!this.ctx) {
       const Ctor =

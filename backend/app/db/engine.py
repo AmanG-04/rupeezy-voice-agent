@@ -75,11 +75,18 @@ def _build_engine(url: str) -> Engine:
         )
     # Postgres path. pool_pre_ping catches stale connections that Supabase's
     # connection pooler may have closed during a Render idle window.
+    # pool_size + max_overflow tuned so dashboard burst polls (3 concurrent
+    # requests every 4-5s) don't drain the pool while one slow query is
+    # still holding a connection. Default (5+10) was hitting the limit
+    # under realistic load and producing intermittent 500s.
     return create_engine(
         url,
         future=True,
         pool_pre_ping=True,
-        pool_recycle=300,  # recycle connections every 5 min
+        pool_recycle=300,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=10,  # fail fast if pool truly exhausted
     )
 
 

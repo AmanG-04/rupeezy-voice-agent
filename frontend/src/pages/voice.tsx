@@ -29,6 +29,7 @@ interface Speaker {
   feed(chunk: string): void;
   finish(): void;
   cancel(): void;
+  setLang?(lang: string): void;
 }
 
 type Status =
@@ -329,6 +330,20 @@ export default function VoicePage() {
             // Don't write tokens into the bubble — let the speaker drive the
             // visible text via onSpoken so audio + text stay in sync.
             speaker.feed(chunk);
+          },
+          onLang: (detectedLang) => {
+            // Backend detected the user spoke a different language than
+            // the picker. Switch the TTS voice for this turn so the
+            // reply sounds correct (Bengali user -> Bengali neural
+            // voice, not English Neerja mangling Bengali script).
+            log('lang event received:', detectedLang, '(picker was', langRef.current, ')');
+            if (detectedLang && detectedLang !== langRef.current) {
+              speaker.setLang?.(detectedLang);
+              // Also flip the picker so future turns + the STT lang
+              // pick up the change automatically.
+              setLang(detectedLang);
+              langRef.current = detectedLang;
+            }
           },
           onConvReplaced: (newConvId) => {
             log('conv replaced (server restarted) — new id:', newConvId);

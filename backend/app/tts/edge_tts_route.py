@@ -75,25 +75,37 @@ async def _stream_mp3(text: str, voice: str, rate: str, pitch: str) -> AsyncIter
             yield chunk["data"]
 
 
+# Bound concurrent TTS synth to 4 in-flight requests. Each synth opens a
+# websocket to Microsoft Edge's TTS endpoint and buffers the MP3 in memory.
+# On a 512MB Render free-tier worker, an uncapped flood (voice page +
+# dashboard + dial-next can all fan out to many TTS calls) pushes the
+# process to OOM-kill. Past 4, requests queue on the semaphore — small
+# extra latency vs. the worker dying.
+_tts_semaphore = asyncio.Semaphore(4)
+
+
 @router.post("/synthesize")
 async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
-    """Synthesize a sentence and stream the MP3 bytes back as audio/mpeg.
-
-    The frontend can either:
-      - feed the response into an <audio> element (set src to a Blob URL), or
-      - decode each chunk and play via AudioContext for tighter latency.
-    """
+    """Synthesize a sentence and stream the MP3 bytes back as audio/mpeg."""
     voice = _voice_for(req.lang)
     log.info("tts: %d chars, lang=%s -> voice=%s", len(req.text), req.lang, voice)
 
     try:
-        # Validate by running one round-trip; we drain into a buffer so any
-        # network error surfaces as a 502 rather than mid-stream truncation.
-        buffer = bytearray()
-        async for piece in _stream_mp3(req.text, voice, req.rate, req.pitch):
-            buffer.extend(piece)
-        if not buffer:
-            raise RuntimeError("edge-tts returned no audio bytes")
+        async with _tts_semaphore:
+            # 15s timeout. Microsoft's neural endpoint usually responds in
+            # 200-800ms; anything past 15s is a stuck websocket we want
+            # to reclaim before the worker memory pressure builds.
+            buffer = bytearray()
+            async with asyncio.timeout(15):
+                async for piece in _stream_mp3(req.text, voice, req.rate, req.pitch):
+                    buffer.extend(piece)
+            if not buffer:
+                raise RuntimeError("edge-tts returned no audio bytes")
+    except asyncio.TimeoutError as e:
+        log.warning("edge-tts synth timed out after 15s for %r", req.lang)
+        raise HTTPException(
+            status_code=504, detail="tts timeout"
+        ) from e
     except Exception as e:  # noqa: BLE001
         log.exception("edge-tts synth failed")
         raise HTTPException(status_code=502, detail=f"tts upstream error: {e}") from e

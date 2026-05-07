@@ -184,10 +184,26 @@ async def turn(conv_id: str, body: TurnRequest):
 
     lang_hint = (body.lang or "").strip() or None
 
+    # Auto-detect from this turn's text. Same logic the conversation
+    # engine uses for its prompt override — exposing it here too so the
+    # frontend can pick the matching TTS voice on the fly without the
+    # user touching the picker.
+    from app.agent.conversation import _detect_lang_from_text
+
+    detected = _detect_lang_from_text(user_text)
+    effective_lang = detected or lang_hint
+
     async def gen() -> AsyncIterator[dict[str, str]]:
+        # Emit the resolved language FIRST so the frontend can pick the
+        # right TTS voice (Edge-TTS: en-IN-Neerja vs bn-IN-Tanishaa, etc.)
+        # for THIS turn's audio synthesis.
+        if effective_lang:
+            yield {
+                "event": "lang",
+                "data": json.dumps({"lang": effective_lang}),
+            }
         try:
             async for chunk in stream_user_turn(conv_id, user_text, lang_hint=lang_hint):
-                # Each event is JSON-encoded so newlines / quotes don't break SSE framing.
                 yield {"event": "token", "data": json.dumps({"text": chunk})}
         except ValueError as e:
             yield {"event": "error", "data": json.dumps({"message": str(e)})}
