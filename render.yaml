@@ -36,3 +36,10 @@ services:
       # Pin Python version. Render reads PYTHON_VERSION at build time.
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Persistence — paste your Supabase Postgres connection string in the
+      # Render dashboard. The engine accepts SQLAlchemy-style URLs and the
+      # `postgres://...` shape Supabase shows in its UI (auto-rewritten to
+      # `postgresql+psycopg://...`). Leave UNSET to keep the SQLite default
+      # which resets on each redeploy. See SUPABASE_SETUP.md.
+      - key: DATABASE_URL
+        sync: false

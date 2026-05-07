@@ -86,10 +86,10 @@ If voice fails but text chat works, it's almost always CORS — re-check that th
 | Your GitHub source | Yes |
 | Render env vars | Yes |
 | Vercel env vars | Yes |
-| Backend SQLite (`backend/data/rupeezy.db`) | **No** — Render free tier wipes the disk on each redeploy. The demo seed regenerates everything anyway. |
+| Backend SQLite (`backend/data/rupeezy.db`) | **No (default)** — Render free tier wipes the disk on each redeploy. **For real persistence, point `DATABASE_URL` at Supabase Postgres — see [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md). 5-min setup, free tier.** |
 | Embedding cache (`backend/data/embed_cache.json`) | **No** — same reason. Costs ~30 embedding calls on first use after each redeploy (well within free quota). |
 
-If you ever want persistent state, upgrade Render to a paid disk ($7/mo) and mount it at `/var/data`.
+If you set `DATABASE_URL` to a Supabase / Neon Postgres URL, all conversation, transcript, handoff, and WhatsApp data survives every redeploy. The default SQLite path is preserved for local dev.
 
 ---
 
