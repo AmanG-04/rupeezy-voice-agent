@@ -126,7 +126,12 @@ export class EdgeTtsSpeaker {
   }
 
   private async fetchAudio(sentence: string): Promise<AudioBuffer | null> {
-    try {
+    // Two attempts: the first fails most often during a Render cold-start,
+    // and a 1.2s wait is enough for the worker to come back. Don't latch
+    // any session-level "edge-tts is dead" flag based on this — a single
+    // transient failure should not poison the next sentence in a
+    // different language.
+    const tryOnce = async (): Promise<AudioBuffer> => {
       const resp = await fetch(api('/api/tts/synthesize'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -137,16 +142,55 @@ export class EdgeTtsSpeaker {
           pitch: this.opts.pitch ?? '+0Hz',
         }),
       });
-      if (!resp.ok) {
-        throw new Error(`tts ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`tts ${resp.status}`);
       const buf = await resp.arrayBuffer();
-      const audio = await this.getCtx().decodeAudioData(buf);
-      return audio;
-    } catch (e) {
-      this.opts.onError?.(`edge-tts fetch failed: ${(e as Error).message}`);
-      return null;
+      return await this.getCtx().decodeAudioData(buf);
+    };
+    try {
+      return await tryOnce();
+    } catch (e1) {
+      await new Promise((s) => setTimeout(s, 1200));
+      try {
+        return await tryOnce();
+      } catch (e2) {
+        // Don't fire onError for this — playNext() will fall back to
+        // browser Web Speech for THIS sentence and continue. We only
+        // log so the dev console captures the underlying cause.
+        console.warn(
+          '[edge-tts] both attempts failed for sentence; falling back to Web Speech for this utterance:',
+          (e2 as Error).message,
+          '(first attempt:', (e1 as Error).message, ')',
+        );
+        return null;
+      }
     }
+  }
+
+  /**
+   * Sentence-level browser Web Speech fallback. Only used when Edge-TTS
+   * fails for THIS specific sentence. Returns a Promise that resolves
+   * when the utterance finishes (so playNext sequencing is preserved).
+   */
+  private async speakWithWebSpeechFallback(sentence: string): Promise<void> {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    return new Promise<void>((resolve) => {
+      try {
+        const u = new SpeechSynthesisUtterance(sentence);
+        u.lang = this.opts.lang;
+        // Slightly slower for non-English (browser fallback voices garble
+        // regional scripts at >1.0).
+        u.rate = this.opts.lang.startsWith('en-') ? 1.05 : 0.95;
+        u.pitch = 1.05;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        window.speechSynthesis.speak(u);
+        // Failsafe — if speechSynthesis never fires onend (Chrome bug
+        // when text is too long), resolve after a generous deadline.
+        setTimeout(resolve, Math.max(2000, sentence.length * 80));
+      } catch {
+        resolve();
+      }
+    });
   }
 
   private async playNext(): Promise<void> {
@@ -167,8 +211,18 @@ export class EdgeTtsSpeaker {
     if (this.cancelled) return;
 
     if (!audio) {
-      // Fetch failed — reveal text instantly so the conversation isn't stuck
-      // and continue with the next sentence.
+      // Edge-TTS unreachable for this sentence (after retries). Fall back
+      // to browser Web Speech for ONLY this sentence and continue. The
+      // next sentence (possibly a different language) tries Edge-TTS
+      // fresh — we never permanently latch the speaker into the worse
+      // browser voice.
+      // Reveal text immediately so the bubble isn't blank while WS speaks.
+      this.opts.onSpoken?.(
+        this.finishedSentencesText
+          ? `${this.finishedSentencesText} ${item.text}`.trim()
+          : item.text,
+      );
+      await this.speakWithWebSpeechFallback(item.text);
       this.finishedSentencesText = this.finishedSentencesText
         ? `${this.finishedSentencesText} ${item.text}`.trim()
         : item.text;

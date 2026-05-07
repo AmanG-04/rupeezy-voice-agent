@@ -140,15 +140,39 @@ class Conversation:
 
 
 class ConversationStore:
-    """In-memory store. Phase 4 swaps for Supabase."""
+    """In-memory store with a soft cap to keep Render's 512MB worker alive.
+
+    The persistence layer (db.repo) is the durable record. This in-memory
+    store only holds active + recently-ended conversations so subsequent
+    /turn requests can pick up state without a DB round-trip. Beyond
+    `_MAX_ENDED` ended conversations, the oldest are evicted.
+
+    Active conversations (ended_at is None) are NEVER evicted — only the
+    backlog of completed-but-not-yet-cleaned-up ones.
+    """
+
+    _MAX_ENDED: int = 100
 
     def __init__(self) -> None:
         self._convs: dict[str, Conversation] = {}
+
+    def _evict_if_needed(self) -> None:
+        ended = [
+            (cid, c) for cid, c in self._convs.items() if c.ended_at is not None
+        ]
+        if len(ended) <= self._MAX_ENDED:
+            return
+        # Sort by end time (string ISO compare is fine — same TZ),
+        # drop the oldest until we're under the cap.
+        ended.sort(key=lambda x: x[1].ended_at or "")
+        for cid, _ in ended[: len(ended) - self._MAX_ENDED]:
+            self._convs.pop(cid, None)
 
     def create(self) -> Conversation:
         conv_id = uuid.uuid4().hex[:12]
         c = Conversation(conv_id=conv_id)
         self._convs[conv_id] = c
+        self._evict_if_needed()
         return c
 
     def create_for_lead(self, lead_id: str) -> Conversation:
@@ -158,6 +182,7 @@ class ConversationStore:
         conv_id = uuid.uuid4().hex[:12]
         c = Conversation(conv_id=conv_id, lead_id=lead_id)
         self._convs[conv_id] = c
+        self._evict_if_needed()
         return c
 
     def get(self, conv_id: str) -> Conversation | None:
@@ -168,6 +193,7 @@ class ConversationStore:
         if c and not c.ended_at:
             c.ended_at = datetime.now(timezone.utc).isoformat()
             c.ended_by = ended_by
+            self._evict_if_needed()
         return c
 
     def list_all(self) -> list[Conversation]:

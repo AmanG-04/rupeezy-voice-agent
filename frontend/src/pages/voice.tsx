@@ -11,7 +11,6 @@ import {
   endConversationBeacon,
   streamTurn,
 } from '../lib/api';
-import { BrowserTtsSpeaker } from '../lib/browserTts';
 import { EdgeTtsSpeaker } from '../lib/edgeTtsSpeaker';
 import {
   type SpeechRecognitionLike,
@@ -25,7 +24,7 @@ import {
   detectObjection,
 } from '../lib/objectionDetect';
 
-/** Speaker interface — both EdgeTtsSpeaker and BrowserTtsSpeaker satisfy it. */
+/** Minimal speaker interface — EdgeTtsSpeaker is the only impl now. */
 interface Speaker {
   feed(chunk: string): void;
   finish(): void;
@@ -80,8 +79,10 @@ export default function VoicePage() {
   // AbortController for in-flight streamTurn fetches. Aborted on unmount so
   // a navigation mid-reply doesn't leak a Response stream.
   const turnAbortRef = useRef<AbortController | null>(null);
-  // Once we know edge-tts is reachable, cache the verdict so we don't probe
-  // it on every turn.
+  // Cached verdict from one start-of-call probe of /api/tts/voices.
+  // ONLY used to log a one-time warning if the backend is unreachable —
+  // the actual per-sentence retry + fallback lives inside EdgeTtsSpeaker.
+  // Never gates which speaker class is used (always EdgeTtsSpeaker).
   const edgeTtsOkRef = useRef<boolean | null>(null);
 
   useEffect(() => {
@@ -213,33 +214,20 @@ export default function VoicePage() {
       onError: (m: string) => log('tts error:', m),
     };
 
-    // Prefer Edge-TTS (neural voices for any judge regardless of OS).
-    // Fall back to Web Speech API if the route isn't reachable.
-    let speaker: Speaker;
-    if (edgeTtsOkRef.current === false) {
-      const isEnglish = lang.startsWith('en-');
-      speaker = new BrowserTtsSpeaker({
-        lang,
-        rate: isEnglish ? 1.15 : 0.98,
-        pitch: 1.06,
-        ...callbacks,
-      });
-    } else {
-      // Edge-TTS rate: small bump for English, natural cadence for IN langs.
-      const isEnglish = lang.startsWith('en-');
-      speaker = new EdgeTtsSpeaker({
-        lang,
-        rate: isEnglish ? '+8%' : '+0%',
-        pitch: '+0Hz',
-        ...callbacks,
-        onError: (m: string) => {
-          // First failure flips the cache so subsequent turns skip the probe.
-          log('edge-tts error, will fall back to web speech:', m);
-          edgeTtsOkRef.current = false;
-          callbacks.onError(m);
-        },
-      });
-    }
+    // ALWAYS prefer Edge-TTS. If the route is genuinely unreachable
+    // (network blocked, backend dead), the fallback happens INSIDE
+    // EdgeTtsSpeaker on a per-sentence basis — it speaks via browser
+    // Web Speech for that one sentence then tries Edge-TTS again for
+    // the next. We deliberately don't latch a session-wide "fall back
+    // forever" flag here, because that's what made Hindi sound
+    // robotic after a single Tamil failure earlier.
+    const isEnglish = lang.startsWith('en-');
+    const speaker: Speaker = new EdgeTtsSpeaker({
+      lang,
+      rate: isEnglish ? '+8%' : '+0%',
+      pitch: '+0Hz',
+      ...callbacks,
+    });
     speakerRef.current = speaker;
 
     let accumulated = '';
