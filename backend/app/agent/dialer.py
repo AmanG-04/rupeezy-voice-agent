@@ -109,6 +109,17 @@ def _next_queued() -> QueuedLead | None:
     return None
 
 
+# Single in-process flag: True while a dial is actively running. Used by
+# the route handler to bounce overlapping /dial-next calls so two
+# Gemini-streaming dials never run simultaneously and starve the event
+# loop of slots for unrelated poll endpoints.
+_dialing: bool = False
+
+
+def is_dialing() -> bool:
+    return _dialing
+
+
 async def dial_next() -> dict | None:
     """Process the next queued lead end-to-end.
 
@@ -116,6 +127,7 @@ async def dial_next() -> dict | None:
       - ``None`` if the queue is empty / nothing to dial
       - a dict ``{lead_id, conv_id, bucket, status, ...}`` on completion
     """
+    global _dialing
     lead = _next_queued()
     if lead is None:
         return None
@@ -127,6 +139,7 @@ async def dial_next() -> dict | None:
     from app.scoring.handoff import build_handoff
 
     lead.status = "contacting"
+    _dialing = True
 
     try:
         store = get_store()
@@ -194,6 +207,8 @@ async def dial_next() -> dict | None:
             "status": "failed",
             "error": lead.error,
         }
+    finally:
+        _dialing = False
 
 
 async def start_worker(*, sleep_between_sec: float = 2.5) -> None:

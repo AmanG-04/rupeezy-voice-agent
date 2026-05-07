@@ -24,7 +24,14 @@ import uuid
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.agent.dialer import SCENARIOS, QueuedLead, dial_next, enqueue, get_queue
+from app.agent.dialer import (
+    SCENARIOS,
+    QueuedLead,
+    dial_next,
+    enqueue,
+    get_queue,
+    is_dialing,
+)
 from app.db.repo import (
     delete_conversation,
     delete_conversations_by_bucket,
@@ -272,16 +279,46 @@ async def leads_queue() -> QueueResponse:
 
 @router.post("/leads/dial-next")
 async def leads_dial_next() -> dict:
-    """Process exactly one queued lead. Returns the resulting handoff summary,
-    or `{idle: true}` if the queue has nothing to dial.
+    """Kick off processing of the next queued lead and return immediately.
 
-    Driven one-step-at-a-time so the demo can show the funnel populating in
-    real time without burning Gemini RPM in a tight loop.
+    Previously this awaited dial_next() inline — but dial_next does ~30-60s
+    of synchronous work (Gemini SSE streaming uses a sync client; sync
+    SQLAlchemy persist; sync WhatsApp render). On a single-worker uvicorn
+    that BLOCKS the event loop, so concurrent dashboard polls (/funnel,
+    /leads, /leads/queue) all timed out into Cloudflare 502s. Solid
+    failure window of 30-60s per dial × N leads in the queue.
+
+    Now: dispatch the dial as an asyncio background task and return one
+    of three states:
+      - {accepted: true}   dialing kicked off, frontend should poll /queue
+      - {idle: true}       no queued leads
+      - {busy: true}       a dial is already running, try again later
+    The frontend's process-queue loop polls /leads/queue (cheap, fast
+    JSON dump from in-memory list) to see when each lead's status flips
+    from contacting -> completed, then triggers the next dial-next.
     """
-    result = await dial_next()
-    if result is None:
+    if is_dialing():
+        return {"busy": True}
+    # Pre-check: any queued lead at all?
+    from app.agent.dialer import _next_queued
+
+    if _next_queued() is None:
         return {"idle": True}
-    return result
+    # Fire-and-forget. Errors are logged inside dial_next; we don't
+    # await the result. The status flag (is_dialing) reflects progress.
+    import asyncio as _asyncio
+
+    _asyncio.create_task(_dial_next_wrapper())
+    return {"accepted": True}
+
+
+async def _dial_next_wrapper() -> None:
+    """Background-task wrapper around dial_next so any unexpected exception
+    doesn't take down the asyncio loop silently."""
+    try:
+        await dial_next()
+    except Exception:  # noqa: BLE001
+        log.exception("background dial_next crashed")
 
 
 # ---------- demo seed (one-click judge demo) ----------

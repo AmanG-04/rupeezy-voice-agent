@@ -344,7 +344,14 @@ export interface QueueResponse {
 }
 
 export interface DialNextResponse {
+  // Possible response shapes:
+  //   {accepted: true}    a dial just started, frontend should poll queue
+  //   {idle: true}        no queued leads remain
+  //   {busy: true}        a dial is already running, try again shortly
+  //   (legacy)            inline dial result with bucket/confidence/etc.
+  accepted?: boolean;
   idle?: boolean;
+  busy?: boolean;
   lead_id?: string;
   conv_id?: string;
   name?: string;

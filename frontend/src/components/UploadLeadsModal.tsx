@@ -171,17 +171,37 @@ export default function UploadLeadsModal({
     setProcessing(true);
     setProcessError(null);
 
+    // dial-next is now non-blocking — it kicks the dial off as a
+    // background task and returns immediately. We poll the queue every
+    // 2.5s for status changes so we don't hammer Render's worker.
     while (!stopRef.current) {
       try {
         const res = await dialNextLead();
-        await refreshQueue();
-        onAfterDial();
         if (res.idle) break;
+        // Either {accepted: true} (just kicked off) or {busy: true}
+        // (something already running). Either way: wait for the queue
+        // to advance. Refresh fast enough for nice UI but slow enough
+        // that we don't add load to a worker mid-Gemini-stream.
+        for (let i = 0; i < 30; i++) {
+          if (stopRef.current) break;
+          await new Promise((r) => setTimeout(r, 2500));
+          await refreshQueue();
+          onAfterDial();
+          // Backend flag only flips back to false when a dial finishes.
+          // The next iteration's dialNextLead() will start the next one.
+          // Detect via queue state: any contacting? still busy. None?
+          // either done or pre-next. Either way, advance the loop.
+          const q = await getLeadsQueue();
+          setQueue(q.queued);
+          const stillContacting = q.queued.some(
+            (lead) => lead.status === 'contacting',
+          );
+          if (!stillContacting) break;
+        }
       } catch (e) {
         setProcessError((e as Error).message);
         break;
       }
-      await new Promise((r) => setTimeout(r, 4000));
     }
 
     setProcessing(false);
