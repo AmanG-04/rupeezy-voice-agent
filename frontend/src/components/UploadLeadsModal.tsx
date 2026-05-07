@@ -17,10 +17,15 @@ import {
   uploadLeadsCsv,
 } from '../lib/api';
 
+// Four distinct demo personas — each routes to a different bucket and
+// triggers a different WhatsApp template, so a judge clicking "Process queue"
+// sees the funnel populate with HOT / WARM / COLD / DND in one go.
 const TEMPLATE_CSV =
-  'name,phone,language_pref,source\n' +
-  'Aman Sharma,+919876543210,english,referral\n' +
-  'Priya Iyer,+919812345678,hindi,website\n';
+  'name,phone,language_pref,source,scenario\n' +
+  'Aman Sharma,+919811001001,english,referral,hot_advisor\n' +
+  'Priya Iyer,+919811001002,hindi,website,warm_mfd\n' +
+  'Rohan Kapoor,+919811001003,english,youtube,cold_busy\n' +
+  'Vikram Singh,+919811001004,english,inbound,dnd_hostile\n';
 
 /**
  * Upload-leads modal. Three concerns in one panel:
@@ -166,7 +171,15 @@ export default function UploadLeadsModal({
                   Drop or select a CSV file
                 </div>
                 <div className="text-[11px] text-rupeezy-fg-faint mt-1 font-mono">
-                  Format: name, phone, language_pref, source
+                  Format: name, phone, language_pref, source, scenario
+                </div>
+                <div className="text-[11px] text-rupeezy-fg-faint mt-1.5 leading-relaxed">
+                  Template ships with 4 personas:{' '}
+                  <span className="text-rupeezy-hot">hot_advisor</span>,{' '}
+                  <span className="text-rupeezy-warm">warm_mfd</span>,{' '}
+                  <span className="text-rupeezy-cold">cold_busy</span>,{' '}
+                  <span className="text-rupeezy-fg-muted">dnd_hostile</span>{' '}
+                  — each produces a distinct bucket + WhatsApp follow-up.
                 </div>
               </div>
             </div>
@@ -183,6 +196,8 @@ export default function UploadLeadsModal({
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,text/csv"
+                aria-label="Upload leads CSV file"
+                title="Upload leads CSV file"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void handleFile(f);

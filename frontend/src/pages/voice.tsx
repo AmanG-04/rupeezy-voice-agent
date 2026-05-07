@@ -8,13 +8,15 @@ import {
   type HandoffRecord,
   createConversation,
   endConversation,
-  streamTurnAudio,
+  streamTurn,
 } from '../lib/api';
-import { AudioQueuePlayer } from '../lib/audioPlayer';
+import { BrowserTtsSpeaker } from '../lib/browserTts';
 import {
   type SpeechRecognitionLike,
   createRecognition,
   isSpeechRecognitionAvailable,
+  isSpeechSynthesisAvailable,
+  cancelSpeech,
 } from '../lib/speech';
 
 type Status =
@@ -60,7 +62,7 @@ export default function VoicePage() {
   const convIdRef = useRef<string | null>(null);
   const statusRef = useRef<Status>('idle');
   const langRef = useRef<string>('en-IN');
-  const audioPlayerRef = useRef<AudioQueuePlayer | null>(null);
+  const speakerRef = useRef<BrowserTtsSpeaker | null>(null);
 
   useEffect(() => {
     convIdRef.current = convId;
@@ -74,11 +76,9 @@ export default function VoicePage() {
 
   useEffect(() => {
     const recOk = isSpeechRecognitionAvailable();
-    const audioOk =
-      typeof window !== 'undefined' &&
-      ('AudioContext' in window || 'webkitAudioContext' in window);
-    log('capability check:', { recognition: recOk, audioContext: audioOk });
-    if (!recOk || !audioOk) {
+    const synthOk = isSpeechSynthesisAvailable();
+    log('capability check:', { recognition: recOk, synthesis: synthOk });
+    if (!recOk || !synthOk) {
       setStatus('unsupported');
     }
   }, []);
@@ -97,8 +97,9 @@ export default function VoicePage() {
       } catch {
         /* ignore */
       }
-      audioPlayerRef.current?.stop();
-      audioPlayerRef.current = null;
+      speakerRef.current?.cancel();
+      speakerRef.current = null;
+      cancelSpeech();
     };
   }, []);
 
@@ -121,46 +122,60 @@ export default function VoicePage() {
       },
     ]);
 
-    if (!audioPlayerRef.current) {
-      audioPlayerRef.current = new AudioQueuePlayer();
-    } else {
-      audioPlayerRef.current.reset();
-    }
-    const player = audioPlayerRef.current;
+    // Cancel anything still being spoken from a previous reply, then build a
+    // fresh sentence-streaming speaker for this turn.
+    speakerRef.current?.cancel();
+    let firstSentenceSpoken = false;
+    const speaker = new BrowserTtsSpeaker({
+      lang: langRef.current,
+      rate: 1.1,
+      pitch: 1.08,
+      onFirstSentence: () => {
+        firstSentenceSpoken = true;
+        isReplyingRef.current = true;
+        setStatus('speaking');
+      },
+      // The bubble fills sentence-by-sentence in lockstep with what the user
+      // is actually hearing — not what the model has streamed.
+      onSpoken: (cumulative) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant') {
+            next[next.length - 1] = { ...last, text: cumulative };
+          }
+          return next;
+        });
+      },
+      onAllDone: () => {
+        log('TTS done, returning to listening');
+        isReplyingRef.current = false;
+        if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+          setStatus('listening');
+        }
+      },
+      onError: (m) => log('tts error:', m),
+    });
+    speakerRef.current = speaker;
 
     let accumulated = '';
-    let firstAudioReceived = false;
 
     try {
-      await streamTurnAudio(cid, text, {
+      await streamTurn(cid, text, {
         onToken: (chunk) => {
           accumulated += chunk;
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant' && last.pending) {
-              next[next.length - 1] = { ...last, text: accumulated };
-            }
-            return next;
-          });
-        },
-        onAudio: (wavB64) => {
-          if (!firstAudioReceived) {
-            firstAudioReceived = true;
-            isReplyingRef.current = true;
-            setStatus('speaking');
-            log('first audio chunk received, switching to speaking');
-          }
-          void player.enqueue(wavB64);
+          // Don't write tokens into the bubble — let the speaker drive the
+          // visible text via onSpoken so audio + text stay in sync.
+          speaker.feed(chunk);
         },
         onError: (msg) => {
-          log('streamTurnAudio onError:', msg);
+          log('streamTurn onError:', msg);
           setErrorMsg(msg);
         },
       });
-      log('streamTurnAudio done, accumulated chars:', accumulated.length);
+      log('streamTurn done, accumulated chars:', accumulated.length);
     } catch (e) {
-      log('streamTurnAudio threw:', e);
+      log('streamTurn threw:', e);
       setErrorMsg((e as Error).message);
     } finally {
       setMessages((prev) => {
@@ -171,22 +186,10 @@ export default function VoicePage() {
         }
         return next;
       });
-
-      if (firstAudioReceived) {
-        try {
-          await player.drained();
-        } catch {
-          /* ignore */
-        }
-        log('audio queue drained, returning to listening');
-        isReplyingRef.current = false;
-        if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
-          setStatus('listening');
-        }
-      } else if (
-        statusRef.current !== 'ended' &&
-        statusRef.current !== 'scoring'
-      ) {
+      // Tell the speaker the stream is over — it will flush trailing text and
+      // call onAllDone once the queue drains.
+      speaker.finish();
+      if (!firstSentenceSpoken && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
         setStatus('listening');
       }
     }
@@ -291,8 +294,13 @@ export default function VoicePage() {
     setErrorMsg(null);
     setMessages([]);
     setHandoff(null);
-    if (!audioPlayerRef.current) {
-      audioPlayerRef.current = new AudioQueuePlayer();
+    // Some browsers (Safari) require a user-gesture before SpeechSynthesis is
+    // allowed to speak. Speak an empty utterance here to "warm up" the engine.
+    try {
+      const u = new SpeechSynthesisUtterance('');
+      window.speechSynthesis.speak(u);
+    } catch {
+      /* ignore */
     }
     try {
       const r = await createConversation();
@@ -313,8 +321,9 @@ export default function VoicePage() {
     if (!convId) return;
     log('ending call:', convId);
     stopRecognition();
-    audioPlayerRef.current?.stop();
-    audioPlayerRef.current = null;
+    speakerRef.current?.cancel();
+    speakerRef.current = null;
+    cancelSpeech();
     isReplyingRef.current = false;
     setStatus('scoring');
     statusRef.current = 'scoring';

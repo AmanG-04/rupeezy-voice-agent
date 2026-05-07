@@ -115,15 +115,70 @@ export async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
-export function pickVoice(voices: SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null {
+/**
+ * Score a voice for "warmth + naturalness". Higher is better.
+ *
+ * The default Windows SAPI voice ("Microsoft David / Zira") is the worst
+ * offender — robotic, flat. The Edge / Chrome online voices ("Natural" /
+ * "Neural") sound dramatically more human. We prefer female voices because
+ * Aria is the persona name.
+ */
+function scoreVoice(v: SpeechSynthesisVoice, lang: string): number {
+  const name = v.name.toLowerCase();
+  let score = 0;
+
+  // Lang match
+  if (v.lang === lang) score += 100;
+  else if (v.lang.startsWith(`${lang.split('-')[0]}-`)) score += 50;
+  else return -1; // wrong language family — skip entirely
+
+  // Naturalness signals (Microsoft Edge online voices contain these tokens)
+  if (name.includes('natural')) score += 80;
+  if (name.includes('neural')) score += 80;
+  if (name.includes('online')) score += 40;
+  if (name.includes('google')) score += 30;
+  if (name.includes('premium')) score += 30;
+
+  // Warmth — prefer female voices for Aria
+  const femaleHints = [
+    'aria',
+    'jenny',
+    'sara',
+    'zira',
+    'samantha',
+    'tessa',
+    'priya',
+    'neerja',
+    'swara',
+    'heera',
+    'kalpana',
+    'shruti',
+    'pallavi',
+    'female',
+  ];
+  if (femaleHints.some((h) => name.includes(h))) score += 20;
+
+  // Penalty for the truly robotic stock SAPI voices
+  if (name.includes('david') || name.includes('mark')) score -= 10;
+
+  return score;
+}
+
+export function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  lang: string,
+): SpeechSynthesisVoice | null {
   if (voices.length === 0) return null;
-  // Prefer exact lang match, then prefix match (en-IN matches en-*), then default.
-  const exact = voices.find((v) => v.lang === lang);
-  if (exact) return exact;
-  const prefix = lang.split('-')[0];
-  const partial = voices.find((v) => v.lang.startsWith(`${prefix}-`));
-  if (partial) return partial;
-  return voices.find((v) => v.default) ?? voices[0];
+  let best: SpeechSynthesisVoice | null = null;
+  let bestScore = -Infinity;
+  for (const v of voices) {
+    const s = scoreVoice(v, lang);
+    if (s > bestScore) {
+      bestScore = s;
+      best = v;
+    }
+  }
+  return best ?? voices.find((v) => v.default) ?? voices[0];
 }
 
 /**

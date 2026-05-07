@@ -24,7 +24,7 @@ import uuid
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.agent.dialer import QueuedLead, dial_next, enqueue, get_queue
+from app.agent.dialer import SCENARIOS, QueuedLead, dial_next, enqueue, get_queue
 from app.db.repo import (
     find_lead_by_phone,
     funnel_counts,
@@ -150,6 +150,11 @@ def _normalize_lang(raw: str | None) -> str:
     return s if s in _ALLOWED_LANGS else "english"
 
 
+def _normalize_scenario(raw: str | None) -> str:
+    s = (raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return s if s in SCENARIOS else "hot_advisor"
+
+
 @router.post("/leads/batch", response_model=BatchUploadResponse)
 async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadResponse:
     """Parse a CSV upload, dedupe by phone, queue new leads for the dialer.
@@ -190,6 +195,7 @@ async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadRespons
         name = _get(row, "name")
         phone = _normalize_phone(_get(row, "phone"))
         language_pref = _normalize_lang(_get(row, "language_pref"))
+        scenario = _normalize_scenario(_get(row, "scenario"))
 
         if not name:
             errors.append(f"line {line_no}: missing name")
@@ -222,6 +228,7 @@ async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadRespons
                 name=name,
                 phone=phone,
                 language_pref=language_pref,
+                scenario=scenario,
             )
         )
         inserted += 1

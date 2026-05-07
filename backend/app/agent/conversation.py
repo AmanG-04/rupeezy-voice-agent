@@ -213,7 +213,7 @@ GENERATION_CONFIG = {
     "temperature": 0.7,          # warm but obedient to language-matching rule
     "top_p": 0.95,
     "top_k": 40,
-    "max_output_tokens": 500,    # ~3-5 spoken sentences before being cut
+    "max_output_tokens": 280,    # ~2-3 spoken sentences — keeps replies snappy
 }
 
 # Don't over-restrict — sales/objection-handling content is harmless. We only

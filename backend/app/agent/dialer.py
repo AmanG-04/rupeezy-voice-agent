@@ -36,6 +36,7 @@ class QueuedLead:
     name: str
     phone: str
     language_pref: str = "english"
+    scenario: str = "hot_advisor"
     status: QueueStatus = "queued"
     conv_id: str | None = None
     bucket: str | None = None
@@ -46,18 +47,44 @@ class QueuedLead:
 _queue: list[QueuedLead] = []
 
 
-# Scripted scenario the dialer runs against every lead. Picked to:
-#  - hit the §1 opener path
-#  - exercise discovery (advisor + 15 clients in one shot for classifier)
-#  - close with explicit signup cue so the bucket lands HOT consistently
+# Per-persona dialer scripts. Each scenario keeps the lead's behaviour
+# realistically distinct so the dashboard ends up with mixed buckets, not
+# a wall of HOT. Two turns each — classifier needs <=4 messages and each
+# extra turn is +10-15s of Gemini latency.
 #
-# Two turns intentionally — the classifier needs <=4 messages and bucketing
-# is determined by the explicit "send me the link" close. Each extra turn
-# is +10-15s of Gemini latency and burns RPM, so we keep this minimal.
-SCRIPT: tuple[str, ...] = (
-    "Hi, I'm a financial advisor with about 15 clients. What is this about?",
-    "Sounds great — send me the signup link, I'm interested.",
-)
+# scenario keys must match the CSV column values (lower-cased, normalised).
+SCENARIOS: dict[str, tuple[str, ...]] = {
+    # Engaged advisor with a real book — explicit signup intent → HOT
+    "hot_advisor": (
+        "Hi, I'm a financial advisor with about 15 clients. What is this about?",
+        "Sounds great — send me the signup link, I'm interested.",
+    ),
+    # Mutual-fund distributor curious but not committing → WARM
+    "warm_mfd": (
+        "Main ek MFD hoon, kuch 30 clients hain. Aapka brokerage split kya hai?",
+        "Theek hai, comparison sheet bhej do WhatsApp pe — main check karke wapas baat karta hoon.",
+    ),
+    # Busy / unconvinced influencer with vague timing → COLD via deferral
+    "cold_busy": (
+        "Hi, I run a small finance YouTube channel. I'm a bit busy right now though.",
+        "I'll think about it and call back later — no specific time.",
+    ),
+    # Hostile reject — DND path
+    "dnd_hostile": (
+        "Who gave you my number? I didn't sign up for any of this.",
+        "Remove my number from your list. Don't call me again.",
+    ),
+}
+
+# Backwards-compat alias retained for tests that import SCRIPT directly.
+SCRIPT: tuple[str, ...] = SCENARIOS["hot_advisor"]
+
+
+def get_script(scenario: str | None) -> tuple[str, ...]:
+    """Pick the dialer script for a scenario key. Falls back to hot_advisor."""
+    if scenario and scenario in SCENARIOS:
+        return SCENARIOS[scenario]
+    return SCENARIOS["hot_advisor"]
 
 
 def enqueue(lead: QueuedLead) -> None:
@@ -106,7 +133,7 @@ async def dial_next() -> dict | None:
         conv = store.create()
         lead.conv_id = conv.conv_id
 
-        for user_text in SCRIPT:
+        for user_text in get_script(lead.scenario):
             # Drain the stream — we don't need the per-token output here, only
             # the post-turn conversation state.
             async for _piece in stream_user_turn(conv.conv_id, user_text):

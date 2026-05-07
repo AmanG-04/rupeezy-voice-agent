@@ -186,6 +186,121 @@ Program is *not* free — it's free of *gatekeeping fees*. There IS a security d
 
 ---
 
+## 3.5 Tax & GST Treatment
+
+The agent should be able to answer the basics here directly — these are the questions partners ask before signing up, not after. For exact filing advice (which slab, which ITR form, deductions claimable), defer to a chartered accountant — that's not a Rupeezy-specific question.
+
+### 3.5.1 Income tax on brokerage share
+
+| | |
+|---|---|
+| Tax classification | Brokerage income is **business / professional income** under the Income Tax Act, not "salary" or "commission TDS". The partner files it under their PAN as their own business. |
+| TDS deducted at source | Rupeezy deducts **TDS at 5%** on commission paid out (Section 194H). This is visible in Form 26AS and credited against the partner's tax liability. |
+| GST applicability on brokerage earned | If the partner's annual brokerage receipts cross the **₹20 lakh threshold** (₹10 lakh in special-category states), GST registration becomes mandatory and 18% GST is charged on the commission invoice raised to Rupeezy. Below the threshold, GST is not applicable. |
+| Deductions allowed | Standard business expenses — subscription fee, exchange AMC, office rent (if applicable), internet, marketing spend, NISM exam fee. The CA decides what's claimable. |
+
+### 3.5.2 GST on the monthly subscription
+
+| | |
+|---|---|
+| GST on the subscription Rupeezy deducts | **18% GST** is included in the subscription tier (the ₹2,499 / ₹4,999 / ... figures are inclusive). Rupeezy issues a tax invoice each month, viewable on the RISE Portal. |
+| Input Tax Credit (ITC) | If the partner is GST-registered, the GST on the subscription invoice is **claimable as ITC** against output GST — this is one reason a growing partner books crosses the GST threshold faster than expected. |
+| One-time charges | Stamp + processing (₹3,000 + ₹1,000) and exchange registration are typically inclusive of statutory levies; GST treatment varies. The exchange invoice is the source of truth — RISE Portal stores it. |
+
+### 3.5.3 What the agent should say
+
+**English frame:** "Quick on tax — brokerage you earn is business income, files under your own PAN. We deduct 5 percent TDS at source under Section 194H, you'll see it in Form 26AS. On GST: if your annual brokerage crosses 20 lakh, you'll need to register and charge 18 percent on your commission invoice to us. Below that, GST doesn't apply. The 2,499 monthly subscription already includes GST, and if you're registered you can claim it as input credit. Beyond these basics I'd point you to a CA — they'll know your slab and your deductions."
+
+**Hindi frame:** "Tax pe quick — aapki brokerage business income mein aati hai, aapke PAN se file hoti hai. Hum source pe 5% TDS kaatte hain Section 194H ke under, woh Form 26AS mein dikhega. GST — agar saalana brokerage 20 lakh cross karti hai toh registration zaroori hai aur 18% GST commission invoice pe lagega. Usse kam pe GST applicable nahi. ₹2,499 subscription mein GST include hai, aur agar aap registered ho toh ITC claim kar sakte ho. Iske aage CA se baat karein — slab aur deductions woh better batayenge."
+
+### 3.5.4 What NOT to claim
+
+- Don't quote a specific income-tax slab number — depends on the partner's total income, not Rupeezy.
+- Don't promise "tax-free earnings" or "save tax via this scheme" — never.
+- Don't advise on ITR-3 vs ITR-4 — that's CA territory.
+- If asked about international partners or NRI tax treatment: defer. Not in scope.
+
+---
+
+## 3.6 Worked Partner Economics — Three Sample Books
+
+Live numbers beat marketing copy. The agent should be able to walk a lead through one of these tables on demand. **Don't memorise — paraphrase the structure and recompute against the lead's actual stated client count if they give one.** Numbers below assume average ₹500/month brokerage per active trading client, a common industry baseline.
+
+### 3.6.1 Sample book size: 50 active clients
+
+| Metric | Rupeezy (100%) | Competitor at 65% |
+|---|---|---|
+| Gross brokerage generated | ₹25,000/mo | ₹25,000/mo |
+| Partner's share | ₹25,000/mo | ₹16,250/mo |
+| Subscription tier | T1 (1–50): ₹2,499 | None (covered in split) |
+| **Net partner take-home** | **₹22,501/mo** | **₹16,250/mo** |
+| Annual delta vs. competitor | **+₹75,012/year** | — |
+
+### 3.6.2 Sample book size: 200 active clients
+
+| Metric | Rupeezy (100%) | Competitor at 65% |
+|---|---|---|
+| Gross brokerage generated | ₹1,00,000/mo | ₹1,00,000/mo |
+| Partner's share | ₹1,00,000/mo | ₹65,000/mo |
+| Subscription tier | T2 (51–200): ₹4,999 | None |
+| **Net partner take-home** | **₹95,001/mo** | **₹65,000/mo** |
+| Annual delta vs. competitor | **+₹3,60,012/year** | — |
+
+### 3.6.3 Sample book size: 500 active clients
+
+| Metric | Rupeezy (100%) | Competitor at 65% |
+|---|---|---|
+| Gross brokerage generated | ₹2,50,000/mo | ₹2,50,000/mo |
+| Partner's share | ₹2,50,000/mo | ₹1,62,500/mo |
+| Subscription tier | T3 (201–500): ₹9,999 | None |
+| **Net partner take-home** | **₹2,40,001/mo** | **₹1,62,500/mo** |
+| Annual delta vs. competitor | **+₹9,30,012/year** | — |
+
+### 3.6.4 The pattern (what the agent should say out loud)
+
+"The way to think about it: the subscription is fixed, the brokerage upside is uncapped. At fifty clients you're already netting forty percent more than a sixty-five-percent competitor, even after subscription. At two hundred clients the gap widens to about three-six lakhs a year. At five hundred it's nearly nine-three lakhs. The bigger your book, the more the 100% versus 65% math compounds — that's the whole pitch."
+
+### 3.6.5 Caveats to disclose alongside the numbers
+
+- Average ₹500/mo per client is a **planning baseline**, not a guarantee. F&O-heavy clients trade more; long-term equity holders trade less.
+- Numbers above ignore exchange AMC (₹5,000 + GST/year for NSE) and the security deposit (refundable, not an expense).
+- TDS at 5% (§3.5) is deducted before payout — what hits the bank is roughly 95% of the table figures.
+- Earnings depend on client trading volume. **Never frame these tables as "you'll earn ₹X".** They're a structural comparison, not a forecast.
+
+---
+
+## 3.7 RISE Portal — What's Inside
+
+RISE (rise.rupeezy.in) is the partner's daily dashboard. When a lead asks "what does the platform actually look like?" or "what do I get access to?", the agent should describe the modules below, not just say "the portal".
+
+### 3.7.1 Module list
+
+| Module | What the partner does there |
+|---|---|
+| **Dashboard** | At-a-glance: clients onboarded MTD/YTD, gross brokerage today/this month, pending payout, tier status. |
+| **Lead CRM** | Add prospects manually or via CSV upload. Pipeline stages: New → Contacted → KYC Sent → Onboarded → Active. Notes, follow-up reminders, last-contacted date. |
+| **Onboarding** | Send a one-tap KYC link via WhatsApp/email/SMS. Track each client's KYC status (pending docs, in-review, approved). E-sign and digital onboarding handled inside Rupeezy's app. |
+| **Brokerage ledger** | Day-by-day brokerage credit per client. Filter by client, by segment (equity/F&O/MF), by date range. Exportable as CSV/Excel/PDF for tax filing. |
+| **Payouts** | Daily settlement view. **Instant withdrawal** to linked bank account — no batch cycle. UPI for amounts under ₹1L, IMPS/NEFT above. |
+| **Subscription & invoices** | Current tier, next-tier threshold, monthly subscription invoice with GST breakdown (for ITC claim). |
+| **Marketing assets** | Co-branded creatives, social-media templates, partner-only landing pages, referral QR codes, video explainers. All free. |
+| **Sub-AP creation** | Larger partners can onboard their own associates as sub-APs under their hierarchy. Brokerage waterfall handled by the system. |
+| **Reports** | Monthly P&L, AUM growth, client-segment mix, attrition (clients who went dormant). For tax filing and business reviews. |
+| **Support tickets** | Partner support desk — onboarding issues, payout queries, reporting bugs. SLA visible per ticket. End-client support is separate (clients use Rupeezy's standard customer support). |
+| **API access** | REST endpoints for partners building their own dashboards / CRMs (lead push, brokerage pull, KYC status). Available on request to T2+ partners. |
+
+### 3.7.2 What the agent should say
+
+**English frame:** "The RISE Portal is where you'll spend your time once you're live. You'll see a daily dashboard of clients onboarded and brokerage earned, a CRM for tracking your lead pipeline through to KYC, a brokerage ledger that's exportable for your CA, instant payouts to your bank account, free marketing assets, and support tickets if anything breaks on the partner side. If you scale enough to bring on associates, you can create sub-APs under your hierarchy. There's also API access for the partners who want to build on top of it — usually T2 and above."
+
+**Hindi frame:** "RISE Portal aapka daily dashboard hai. Onboarded clients, daily brokerage, CRM jisme leads ka pipeline manage hota hai, brokerage ledger jise CA ke liye export kar sakte ho, instant bank payout, free marketing material, aur agar kuch issue ho toh partner support tickets. Scale karne pe sub-APs bhi banaa sakte ho aapke neeche. API access bhi hai — usually T2 partners se upar."
+
+### 3.7.3 Mobile vs. web
+
+RISE is **web-first** (rise.rupeezy.in, Chrome/Safari/Edge). No standalone partner mobile app yet — the responsive web build works well on mobile browsers. Clients use Rupeezy's standard mobile app for trading.
+
+---
+
 ## 4. The Five Core Objections — Rebuttal Playbook
 
 Each objection has the same five-part structure, designed for natural conversation, not script-reading:
