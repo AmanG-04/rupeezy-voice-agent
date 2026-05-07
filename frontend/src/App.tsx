@@ -13,6 +13,7 @@ import {
 import { Brand } from './components/Brand';
 import PipelineDiagram from './components/PipelineDiagram';
 import { dialNextLead, seedDemoLeads } from './lib/api';
+import { api } from './lib/apiBase';
 
 interface Health {
   status: string;
@@ -38,8 +39,8 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/health').then((r) => r.json() as Promise<Health>),
-      fetch('/api/version').then((r) => r.json() as Promise<Version>),
+      fetch(api('/health')).then((r) => r.json() as Promise<Health>),
+      fetch(api('/api/version')).then((r) => r.json() as Promise<Version>),
     ])
       .then(([h, v]) => {
         setHealth(h);

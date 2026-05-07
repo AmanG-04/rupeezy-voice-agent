@@ -15,6 +15,8 @@
  * along sees text and audio stay in sync.
  */
 
+import { api } from './apiBase';
+
 const SENTENCE_BOUNDARY = /([.!?…।]\s+|[.!?…।]$)/;
 // One-sentence audio buffer in chars. Below this we just speak the buffer
 // directly — pointless to wait for a full sentence terminator on a one-liner.
@@ -125,7 +127,7 @@ export class EdgeTtsSpeaker {
 
   private async fetchAudio(sentence: string): Promise<AudioBuffer | null> {
     try {
-      const resp = await fetch('/api/tts/synthesize', {
+      const resp = await fetch(api('/api/tts/synthesize'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,7 +245,7 @@ export class EdgeTtsSpeaker {
    * Returns true if /api/tts/synthesize responds OK. */
   static async isAvailable(): Promise<boolean> {
     try {
-      const r = await fetch('/api/tts/voices');
+      const r = await fetch(api('/api/tts/voices'));
       return r.ok;
     } catch {
       return false;

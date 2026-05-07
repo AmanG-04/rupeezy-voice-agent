@@ -1,0 +1,35 @@
+# Render.com service definition for the FastAPI backend.
+#
+# Free tier: web service spins down after ~15 min of inactivity, cold-starts
+# on the next request (~30s wake). For a hackathon demo this is fine — judges
+# hit the URL once and it stays warm for the session.
+#
+# SQLite + embed_cache.json live on Render's ephemeral disk on the free tier
+# and reset on each redeploy. That's intentional for the demo (clean slate
+# every push); upgrade to a persistent disk if you need state across
+# redeploys.
+
+services:
+  - type: web
+    name: rupeezy-voice-agent
+    runtime: python
+    plan: free
+    rootDir: backend
+    # Pin Python to match what we develop on locally.
+    pythonVersion: "3.11"
+    buildCommand: pip install -e .
+    # $PORT is injected by Render; binding to 0.0.0.0 is required.
+    # No --reload in prod.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # GEMINI_API_KEY is the only required secret. Set this in the Render
+      # dashboard, NOT here — secrets in the repo defeat the purpose.
+      - key: GEMINI_API_KEY
+        sync: false
+      # CORS — set to your Vercel frontend URL after the first frontend deploy.
+      # Multiple origins comma-separated.
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: BACKEND_LOG_LEVEL
+        value: INFO

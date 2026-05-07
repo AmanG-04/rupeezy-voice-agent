@@ -114,7 +114,9 @@ export interface EndConversationResponse {
   handoff_error: string | null;
 }
 
-const BASE = '/api/conversations';
+import { api } from './apiBase';
+
+const BASE = api('/api/conversations');
 
 export async function createConversation(
   opts?: { leadId?: string },
@@ -181,7 +183,7 @@ export interface LeadDetail {
   transcript: ConversationMessage[];
 }
 
-const DASH = '/api/dashboard';
+const DASH = api('/api/dashboard');
 
 export async function getFunnel(): Promise<Funnel> {
   const r = await fetch(`${DASH}/funnel`);
