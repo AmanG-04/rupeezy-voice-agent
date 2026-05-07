@@ -307,20 +307,31 @@ def funnel_counts() -> dict[str, int]:
 # ---------- Deletes (RM dashboard cleanup) ----------
 
 
+def _delete_one_conversation(s, conv_id: str) -> int:
+    """Delete children first, then the conversation row. Postgres enforces
+    FK constraints in real-time, and the ORM-level `cascade="all,
+    delete-orphan"` only fires if the children are loaded into the
+    session — which doesn't always happen for relationships marked
+    selectinload elsewhere. Doing the deletes explicitly works on both
+    SQLite (where cascade was automatic) and Postgres (where it isn't
+    unless we load + delete the rows ourselves)."""
+    from sqlalchemy import delete as sa_delete
+
+    # Children with FK to conversations.id and ondelete="CASCADE":
+    s.execute(sa_delete(WhatsappLog).where(WhatsappLog.conversation_id == conv_id))
+    s.execute(sa_delete(Message).where(Message.conversation_id == conv_id))
+    s.execute(sa_delete(HandoffRow).where(HandoffRow.conversation_id == conv_id))
+    # Now the parent.
+    result = s.execute(sa_delete(ConversationRow).where(ConversationRow.id == conv_id))
+    return int(result.rowcount or 0)
+
+
 def delete_conversation(conv_id: str) -> int:
     """Delete a single conversation and everything cascaded from it
     (messages, handoff_records, whatsapp_log). Returns 1 if a row was
     deleted, 0 if not found."""
     with session_scope() as s:
-        row = (
-            s.query(ConversationRow)
-            .filter(ConversationRow.id == conv_id)
-            .one_or_none()
-        )
-        if row is None:
-            return 0
-        s.delete(row)
-        return 1
+        return _delete_one_conversation(s, conv_id)
 
 
 def delete_conversations_by_bucket(bucket: str) -> int:
@@ -329,13 +340,14 @@ def delete_conversations_by_bucket(bucket: str) -> int:
     if bucket not in {"hot", "warm", "cold"}:
         raise ValueError(f"unknown bucket: {bucket}")
     with session_scope() as s:
-        rows = (
-            s.query(ConversationRow)
-            .join(ConversationRow.handoff)
+        # First find all conversation IDs in this bucket.
+        ids = [
+            row[0]
+            for row in s.query(HandoffRow.conversation_id)
             .filter(HandoffRow.bucket == bucket)
             .all()
-        )
-        count = len(rows)
-        for r in rows:
-            s.delete(r)
+        ]
+        count = 0
+        for cid in ids:
+            count += _delete_one_conversation(s, cid)
         return count

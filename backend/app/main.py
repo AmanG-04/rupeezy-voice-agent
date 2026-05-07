@@ -56,6 +56,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-TTS-Voice"],
+    # Default is 600s. On Render's free tier the worker spins down after
+    # ~15min idle and cold-starts via a Cloudflare-served 502 page that
+    # has NO CORS headers — browsers cache that as "origin denied" for the
+    # full max-age. 60s lets us recover within a minute instead of 10.
+    max_age=60,
 )
 
 
