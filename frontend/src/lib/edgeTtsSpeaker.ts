@@ -126,60 +126,79 @@ export class EdgeTtsSpeaker {
   }
 
   private async fetchAudio(sentence: string): Promise<AudioBuffer | null> {
-    // Two attempts: the first fails most often during a Render cold-start,
-    // and a 1.2s wait is enough for the worker to come back. Don't latch
-    // any session-level "edge-tts is dead" flag based on this — a single
-    // transient failure should not poison the next sentence in a
-    // different language.
-    const tryOnce = async (): Promise<AudioBuffer> => {
-      const resp = await fetch(api('/api/tts/synthesize'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: sentence,
-          lang: this.opts.lang,
-          rate: this.opts.rate ?? '+0%',
-          pitch: this.opts.pitch ?? '+0Hz',
-        }),
-      });
-      if (!resp.ok) throw new Error(`tts ${resp.status}`);
-      const buf = await resp.arrayBuffer();
-      return await this.getCtx().decodeAudioData(buf);
-    };
-    try {
-      return await tryOnce();
-    } catch (e1) {
-      await new Promise((s) => setTimeout(s, 1200));
+    // 3 attempts with exponential backoff. Render free-tier cold-start is
+    // ~30s; the previous 2-attempt × 1.2s strategy finished long before the
+    // worker came back. Per-attempt timeout caps each try at 12s so a
+    // hanging Cloudflare 502 path doesn't burn the whole budget.
+    //
+    // Don't latch any session-level "edge-tts is dead" flag — a single
+    // transient failure should not poison subsequent sentences (especially
+    // in regional langs where the browser Web Speech fallback is worse
+    // than silence).
+    const backoffMs = [0, 1500, 4000];
+    let lastErr: Error | null = null;
+
+    for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+      if (backoffMs[attempt] > 0) {
+        await new Promise((s) => setTimeout(s, backoffMs[attempt]));
+      }
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 12000);
       try {
-        return await tryOnce();
-      } catch (e2) {
-        // Don't fire onError for this — playNext() will fall back to
-        // browser Web Speech for THIS sentence and continue. We only
-        // log so the dev console captures the underlying cause.
-        console.warn(
-          '[edge-tts] both attempts failed for sentence; falling back to Web Speech for this utterance:',
-          (e2 as Error).message,
-          '(first attempt:', (e1 as Error).message, ')',
-        );
-        return null;
+        const resp = await fetch(api('/api/tts/synthesize'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: sentence,
+            lang: this.opts.lang,
+            rate: this.opts.rate ?? '+0%',
+            pitch: this.opts.pitch ?? '+0Hz',
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!resp.ok) throw new Error(`tts ${resp.status}`);
+        const buf = await resp.arrayBuffer();
+        return await this.getCtx().decodeAudioData(buf);
+      } catch (e) {
+        clearTimeout(timeoutId);
+        lastErr = e as Error;
+        if (this.cancelled) return null;
       }
     }
+
+    console.warn(
+      '[edge-tts] all 3 attempts failed for sentence; falling back to Web Speech (or skipping if non-English):',
+      lastErr?.message,
+    );
+    return null;
   }
 
   /**
-   * Sentence-level browser Web Speech fallback. Only used when Edge-TTS
-   * fails for THIS specific sentence. Returns a Promise that resolves
-   * when the utterance finishes (so playNext sequencing is preserved).
+   * Sentence-level browser Web Speech fallback. Used when Edge-TTS fails
+   * for a sentence — but ONLY for English. For Hindi / Tamil / Telugu /
+   * Marathi / Gujarati / Bengali, browser Web Speech on a vanilla install
+   * either has no native voice or speaks Devanagari/Tamil/etc. text in a
+   * default English voice — producing exactly the "rupeezy ai 100%"
+   * mangling we just hit (it strips non-Latin chars and reads only the
+   * ASCII tokens). Better to show the text without speaking than to butcher
+   * a regional language out loud.
+   *
+   * Returns a Promise that resolves when the utterance finishes (or
+   * immediately if we skip).
    */
   private async speakWithWebSpeechFallback(sentence: string): Promise<void> {
+    // Skip the fallback entirely for non-English. Caller will reveal text
+    // and move on; the next sentence retries Edge-TTS fresh.
+    if (!this.opts.lang.startsWith('en-')) {
+      return;
+    }
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     return new Promise<void>((resolve) => {
       try {
         const u = new SpeechSynthesisUtterance(sentence);
         u.lang = this.opts.lang;
-        // Slightly slower for non-English (browser fallback voices garble
-        // regional scripts at >1.0).
-        u.rate = this.opts.lang.startsWith('en-') ? 1.05 : 0.95;
+        u.rate = 1.05;
         u.pitch = 1.05;
         u.onend = () => resolve();
         u.onerror = () => resolve();
