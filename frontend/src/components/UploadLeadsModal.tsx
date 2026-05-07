@@ -17,15 +17,72 @@ import {
   uploadLeadsCsv,
 } from '../lib/api';
 
-// Four distinct demo personas — each routes to a different bucket and
-// triggers a different WhatsApp template, so a judge clicking "Process queue"
-// sees the funnel populate with HOT / WARM / COLD / DND in one go.
-const TEMPLATE_CSV =
-  'name,phone,language_pref,source,scenario\n' +
-  'Aman Sharma,+919811001001,english,referral,hot_advisor\n' +
-  'Priya Iyer,+919811001002,hindi,website,warm_mfd\n' +
-  'Rohan Kapoor,+919811001003,english,youtube,cold_busy\n' +
-  'Vikram Singh,+919811001004,english,inbound,dnd_hostile\n';
+// Each download produces a fresh 4-row CSV: 2 HOT, 1 WARM, 1 COLD.
+// Names are sampled without replacement from per-scenario pools, and phone
+// numbers are sequential off a per-session counter so two clicks back-to-back
+// don't produce duplicate-skip rows on the backend.
+
+const HOT_NAMES = [
+  'Devansh Tiwari', 'Aaryan Mukhopadhyay', 'Karthik Subramanian',
+  'Hemanth Yelchuri', 'Tanmay Phadke', 'Nikhil Agarwal',
+  'Vihaan Tendulkar', 'Senthil Vadivelan', 'Ojasvi Pradhan',
+  'Rashmika Vaidyanathan', 'Harish Chandra', 'Balasubramanian Iyer',
+];
+const WARM_NAMES = [
+  'Ishita Choudhary', 'Sanika Kulkarni', 'Aastha Bhandari',
+  'Bhavika Suri', 'Aaradhya Trivedi', 'Rituparna Das',
+  'Hridaynath Roy', 'Saurav Pattanaik', 'Manish Verma',
+];
+const COLD_NAMES = [
+  'Yuvraj Bhatia', 'Akhil Gangadharan', 'Pranshu Bhardwaj',
+  'Kabir Saxena', 'Sandeep Joshi', 'Tridib Chakraborty',
+];
+
+const HOT_LANGS = ['english', 'hinglish'];
+const WARM_LANGS = ['hindi', 'hinglish', 'english'];
+const COLD_LANGS = ['english', 'hindi'];
+
+const SOURCES = ['referral', 'website', 'linkedin', 'youtube', 'instagram', 'whatsapp', 'inbound'];
+
+function pickN<T>(pool: T[], n: number): T[] {
+  // Sample without replacement.
+  const copy = [...pool];
+  const out: T[] = [];
+  for (let i = 0; i < n && copy.length > 0; i++) {
+    const idx = Math.floor(Math.random() * copy.length);
+    out.push(copy.splice(idx, 1)[0]);
+  }
+  return out;
+}
+
+function pick<T>(pool: T[]): T {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Module-level counter so successive downloads in the same session keep
+// stepping the phone numbers forward instead of colliding.
+let phoneCounter = Math.floor(Math.random() * 9000) + 1000; // 4-digit start
+
+function nextPhone(): string {
+  phoneCounter += 1;
+  // +91-981 prefix + 7-digit sequential tail. Keeps within E.164 + clearly
+  // synthetic so judges aren't confused about real numbers.
+  return `+91981${String(phoneCounter).padStart(7, '0')}`;
+}
+
+function buildTemplateCsv(): string {
+  const [hot1, hot2] = pickN(HOT_NAMES, 2);
+  const [warm] = pickN(WARM_NAMES, 1);
+  const [cold] = pickN(COLD_NAMES, 1);
+
+  const rows = [
+    `${hot1},${nextPhone()},${pick(HOT_LANGS)},${pick(SOURCES)},hot_advisor`,
+    `${hot2},${nextPhone()},${pick(HOT_LANGS)},${pick(SOURCES)},hot_advisor`,
+    `${warm},${nextPhone()},${pick(WARM_LANGS)},${pick(SOURCES)},warm_mfd`,
+    `${cold},${nextPhone()},${pick(COLD_LANGS)},${pick(SOURCES)},cold_busy`,
+  ];
+  return ['name,phone,language_pref,source,scenario', ...rows, ''].join('\n');
+}
 
 /**
  * Upload-leads modal. Three concerns in one panel:
@@ -92,7 +149,11 @@ export default function UploadLeadsModal({
   };
 
   const handleDownloadTemplate = () => {
-    const url = `data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE_CSV)}`;
+    // Fresh roster on every click — different names, different phones, same
+    // 2-HOT / 1-WARM / 1-COLD shape — so judges can re-upload without the
+    // backend deduping by phone and skipping rows.
+    const csv = buildTemplateCsv();
+    const url = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = 'rupeezy_leads_template.csv';
@@ -174,12 +235,11 @@ export default function UploadLeadsModal({
                   Format: name, phone, language_pref, source, scenario
                 </div>
                 <div className="text-[11px] text-rupeezy-fg-faint mt-1.5 leading-relaxed">
-                  Template ships with 4 personas:{' '}
-                  <span className="text-rupeezy-hot">hot_advisor</span>,{' '}
-                  <span className="text-rupeezy-warm">warm_mfd</span>,{' '}
-                  <span className="text-rupeezy-cold">cold_busy</span>,{' '}
-                  <span className="text-rupeezy-fg-muted">dnd_hostile</span>{' '}
-                  — each produces a distinct bucket + WhatsApp follow-up.
+                  Each download is a fresh roster —{' '}
+                  <span className="text-rupeezy-hot">2 HOT</span>,{' '}
+                  <span className="text-rupeezy-warm">1 WARM</span>,{' '}
+                  <span className="text-rupeezy-cold">1 COLD</span> — with
+                  new names &amp; phones, so re-uploading never dedupe-skips.
                 </div>
               </div>
             </div>

@@ -47,7 +47,7 @@ class Settings(BaseSettings):
         default="gemini-3.1-flash-lite-preview", alias="GEMINI_REASONING_MODEL"
     )
     gemini_embedding_model: str = Field(
-        default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL"
+        default="gemini-embedding-2", alias="GEMINI_EMBEDDING_MODEL"
     )
 
     # --- Backend runtime ---

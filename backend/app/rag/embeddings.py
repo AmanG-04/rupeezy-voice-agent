@@ -22,8 +22,9 @@ log = logging.getLogger("rupeezy.rag.embeddings")
 _CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "embeddings_cache"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# gemini-embedding-001 returns 3072-dim by default. (text-embedding-004 was 768
-# but is retired on current API keys.)
+# Both gemini-embedding-001 and gemini-embedding-2 return 3072-dim by default.
+# Cache keys are namespaced by model name, so swapping models doesn't poison
+# old vectors — they get re-embedded into a fresh cache slot on first use.
 _EMBED_DIM = 3072
 
 
