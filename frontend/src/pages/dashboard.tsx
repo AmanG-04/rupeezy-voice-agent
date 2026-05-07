@@ -32,9 +32,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Manual-refresh state — we want a visible spin + disabled button while
+  // the click is in flight, separate from the initial-load `loading` flag
+  // so a manual click never blanks the table.
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
+    setRefreshing(true);
     try {
       const [f, l] = await Promise.all([
         getFunnel(),
@@ -42,10 +48,12 @@ export default function DashboardPage() {
       ]);
       setFunnel(f);
       setLeads(l);
+      setLastRefreshed(new Date());
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [bucketFilter]);
 
@@ -138,11 +146,19 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => void refresh()}
-            className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
-            title="Auto-refreshes every 5 seconds"
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            title={
+              lastRefreshed
+                ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}. Auto-refreshes every 5 seconds.`
+                : 'Auto-refreshes every 5 seconds'
+            }
           >
-            <RefreshCw size={13} />
-            Refresh
+            <RefreshCw
+              size={13}
+              className={refreshing ? 'animate-spin' : ''}
+            />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </header>
