@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Brand } from './components/Brand';
 import PipelineDiagram from './components/PipelineDiagram';
-import { dialNextLead, seedDemoLeads } from './lib/api';
+import { dialNextLead, fetchWithRetry, seedDemoLeads } from './lib/api';
 import { api } from './lib/apiBase';
 
 interface Health {
@@ -41,8 +41,8 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([
-      fetch(api('/health')).then((r) => r.json() as Promise<Health>),
-      fetch(api('/api/version')).then((r) => r.json() as Promise<Version>),
+      fetchWithRetry(api('/health')).then((r) => r.json() as Promise<Health>),
+      fetchWithRetry(api('/api/version')).then((r) => r.json() as Promise<Version>),
     ])
       .then(([h, v]) => {
         setHealth(h);

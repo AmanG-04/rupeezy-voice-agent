@@ -118,6 +118,45 @@ import { api } from './apiBase';
 
 const BASE = api('/api/conversations');
 
+/**
+ * Wraps fetch with one quick retry on the failure modes we see in
+ * production: Render free tier serving Cloudflare 502/503/504 during a
+ * worker restart, and network-level errors (DNS blip, browser offline
+ * for a frame). The retry happens after a 1.2s pause — long enough for
+ * a typical Render cold-start hand-off, short enough that a busy
+ * dashboard polling every 5s doesn't pile up retries.
+ *
+ * Don't use this for POST routes that mutate state (could cause double
+ * writes); use it for idempotent GETs only. POST conversation/turn has
+ * its own retry path inside streamTurn.
+ */
+export async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  let r: Response;
+  try {
+    r = await fetch(input, init);
+  } catch (e) {
+    await new Promise((s) => setTimeout(s, 1200));
+    try {
+      r = await fetch(input, init);
+    } catch (e2) {
+      throw e2;
+    }
+    void e;
+  }
+  if (r.status === 502 || r.status === 503 || r.status === 504) {
+    await new Promise((s) => setTimeout(s, 1200));
+    try {
+      r = await fetch(input, init);
+    } catch {
+      // Keep the original 5xx response if the retry network-fails too.
+    }
+  }
+  return r;
+}
+
 export async function createConversation(
   opts?: { leadId?: string },
 ): Promise<CreateConversationResponse> {
@@ -132,7 +171,7 @@ export async function createConversation(
 }
 
 export async function getConversation(convId: string): Promise<Conversation> {
-  const r = await fetch(`${BASE}/${convId}`);
+  const r = await fetchWithRetry(`${BASE}/${convId}`);
   if (!r.ok) throw new Error(`getConversation: ${r.status}`);
   return r.json();
 }
@@ -179,7 +218,7 @@ export function endConversationBeacon(
 }
 
 export async function getHandoff(convId: string): Promise<HandoffRecord> {
-  const r = await fetch(`${BASE}/${convId}/handoff`);
+  const r = await fetchWithRetry(`${BASE}/${convId}/handoff`);
   if (!r.ok) throw new Error(`getHandoff: ${r.status}`);
   return r.json();
 }
@@ -214,7 +253,7 @@ export interface LeadDetail {
 const DASH = api('/api/dashboard');
 
 export async function getFunnel(): Promise<Funnel> {
-  const r = await fetch(`${DASH}/funnel`);
+  const r = await fetchWithRetry(`${DASH}/funnel`);
   if (!r.ok) throw new Error(`getFunnel: ${r.status}`);
   return r.json();
 }
@@ -224,13 +263,13 @@ export async function listLeads(opts?: { bucket?: Bucket; limit?: number }): Pro
   if (opts?.bucket) qs.set('bucket', opts.bucket);
   if (opts?.limit) qs.set('limit', String(opts.limit));
   const q = qs.toString();
-  const r = await fetch(`${DASH}/leads${q ? `?${q}` : ''}`);
+  const r = await fetchWithRetry(`${DASH}/leads${q ? `?${q}` : ''}`);
   if (!r.ok) throw new Error(`listLeads: ${r.status}`);
   return r.json();
 }
 
 export async function getLeadDetail(convId: string): Promise<LeadDetail> {
-  const r = await fetch(`${DASH}/leads/${convId}`);
+  const r = await fetchWithRetry(`${DASH}/leads/${convId}`);
   if (!r.ok) throw new Error(`getLeadDetail: ${r.status}`);
   return r.json();
 }
@@ -255,7 +294,7 @@ export interface WhatsappLog {
 }
 
 export async function getWhatsappLogs(convId: string): Promise<WhatsappLog[]> {
-  const r = await fetch(`${DASH}/leads/${convId}/whatsapp`);
+  const r = await fetchWithRetry(`${DASH}/leads/${convId}/whatsapp`);
   if (!r.ok) throw new Error(`getWhatsappLogs: ${r.status}`);
   return r.json();
 }
@@ -304,7 +343,7 @@ export async function uploadLeadsCsv(file: File): Promise<BatchUploadResponse> {
 }
 
 export async function getLeadsQueue(): Promise<QueueResponse> {
-  const r = await fetch(`${DASH}/leads/queue`);
+  const r = await fetchWithRetry(`${DASH}/leads/queue`);
   if (!r.ok) throw new Error(`getLeadsQueue: ${r.status}`);
   return r.json();
 }
