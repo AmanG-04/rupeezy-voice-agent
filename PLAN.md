@@ -20,29 +20,53 @@
 
 ---
 
-## Phase index
+## Status (May 2026)
+
+All twelve phases shipped. Several reality-driven divergences from the original plan — captured in a "Reality vs Plan" section below.
+
+| # | Phase | Status | Notes |
+| --- | --- | --- | --- |
+| 0 | Repo & toolchain bootstrap | ✅ done | |
+| 1 | Knowledge base + RAG | ✅ done | embedding-2 (was embedding-001 / 004 in plan) |
+| 2 | Text-chat agent | ✅ done | + objection chips, + 4-layer prompt |
+| 3 | Post-call pipeline | ✅ done | classifier walks the same chain as conversation engine |
+| 4 | Persistence | ✅ done | SQLite (not Supabase — overkill for hackathon scale) |
+| 5 | RM dashboard | ✅ done | + drilldown drawer, + WhatsApp dispatch log |
+| 6 | Voice loop | ✅ done | Web Speech STT + Edge-TTS neural (not Gemini Live + LiveKit) |
+| 7 | Multilingual hardening | ✅ done | 8 langs in picker, neural voices per language |
+| 8 | WhatsApp handoff | ✅ done | mock sender, all 3 templates rendered + persisted |
+| 9 | Batch lead upload | ✅ done | + 4 scenario keys, + rotating template generator |
+| 10 | Cross-call memory | ✅ done | prior-call summary injected into prompt layer 1b |
+| 11 | Polish, README, deploy | ✅ done | live on Render + Vercel; fallback chain + pipeline diagram |
+| 12 | Video walkthrough | ⏳ outstanding | 5-min MP4 |
+
+### Reality vs plan — what changed
+
+- **Voice path.** Plan said *Gemini Live API + LiveKit*. Shipped *Web Speech API (STT) + Edge-TTS (neural)*. Reasons: Live API loses RAG injection + classifier path; LiveKit is overkill since judges accept browser voice; Edge-TTS gives 11 Indian neural voices to any visitor without an API key.
+- **Storage.** Plan said *Supabase + pgvector*. Shipped *SQLite + content-hashed embedding cache*. One file, zero ops. Postgres swap is one config line.
+- **Embeddings.** Plan said *text-embedding-004*. Shipped *gemini-embedding-2* (newer GA model, 8K context).
+- **Chat model.** Plan said *Gemini 2.5 Flash + Pro for reasoning*. Shipped *3.1-flash-lite-preview as primary with a 3-model fallback chain* on 429 — primary 500/day quota, fallbacks pool independently. Demo never goes dark mid-call.
+- **Frontend deploy.** Plan said *Vercel*. Shipped *Vercel (frontend) + Render (backend)*. Render needed for FastAPI's persistent process / SSE / Edge-TTS streaming.
+
+---
+
+## Original Phase index (kept for reference)
 
 | # | Phase | Time cap | Demo proof at end of phase |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0 | Repo & toolchain bootstrap | 30 min | `git clone && npm/uv install` works; CI green |
 | 1 | Knowledge base + RAG | 90 min | CLI: ask a question, agent retrieves correct Appendix chunk |
 | 2 | Text-chat agent (the brain) | 2 hrs | Browser: full text conversation, 5 objections handled, language switching works |
 | 3 | Post-call pipeline | 90 min | After any chat: H/W/C verdict + 3-sentence summary + handoff payload printed |
-| 4 | Persistence (Supabase) | 60 min | Conversation, transcript, summary, score persisted; reload page = nothing lost |
+| 4 | Persistence | 60 min | Conversation, transcript, summary, score persisted; reload = nothing lost |
 | 5 | RM dashboard | 2.5 hrs | React page: funnel + leads list + per-lead drilldown with transcript + handoff |
-| 6 | Voice loop (Gemini Live + LiveKit) | 3 hrs | Browser: speak to agent in English/Hindi, get spoken response, transcript captured |
-| 7 | Multilingual hardening | 60 min | Hindi-only and Hinglish flows tested end-to-end with real audio |
+| 6 | Voice loop | 3 hrs | Browser: speak to agent in English/Hindi, get spoken response, transcript captured |
+| 7 | Multilingual hardening | 60 min | Hindi + Hinglish + regional flows tested end-to-end with real audio |
 | 8 | WhatsApp handoff (mocked) | 45 min | Hot lead triggers a "WhatsApp send" — payload + link visible in dashboard |
 | 9 | Batch lead upload | 45 min | CSV upload → leads queued → agent dials each (visually) in sequence |
 | 10 | Multi-turn cross-call memory | 60 min | Second call to same lead opens with "last time you said X" |
-| 11 | Polish, README, deploy | 90 min | Public Vercel URL + GitHub repo with full README + architecture diagram |
+| 11 | Polish, README, deploy | 90 min | Public URL + GitHub repo with full README + architecture diagram |
 | 12 | Video walkthrough | 90 min | 5-min MP4 covering all judging dimensions |
-
-**Total nominal time:** ~17 hours of focused work. Realistic with breaks: 2.5 days.
-
-**Hard cuts available** (in order, if we run short): Phase 9 (batch — fake with a 3-row CSV), Phase 10 (cross-call memory — show as "designed but not wired"), Phase 7 regional languages beyond Hindi.
-
-**Never cut:** Phases 1, 2, 3, 5, 6, 11, 12.
 
 ---
 

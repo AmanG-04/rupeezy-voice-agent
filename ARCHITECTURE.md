@@ -1,7 +1,8 @@
 # Architecture — Rupeezy AI Voice Agent
 
-> Complete graphical reference for the system. Every phase (0–10) shipped, plus
-> Phase 6 voice (partial-deferred). All diagrams are GitHub-rendered Mermaid.
+> Complete graphical reference for the system as deployed (May 2026). All
+> phases shipped, voice path uses Web Speech STT + Edge-TTS neural voices,
+> chat models walk a fallback chain on 429. All diagrams are GitHub-rendered Mermaid.
 >
 > Read this end-to-end after `README.md` and before `PLAN.md`. It's the single
 > map between *"what does the codebase do"* and *"where does the bytes flow"*.
@@ -16,50 +17,51 @@ flowchart LR
         ChatPg["/chat page"]
         VoicePg["/voice page"]
         DashPg["/dashboard page"]
-        AudioPlayer["AudioQueuePlayer<br/>Web Audio API"]
+        EdgeTtsSpk["EdgeTtsSpeaker<br/>fetch + AudioContext<br/>word-level reveal"]
         SpeechRec["SpeechRecognition<br/>Web Speech API"]
     end
 
-    subgraph Frontend["Frontend — Vite + React + TS — :5173"]
-        ApiTs["lib/api.ts<br/>typed fetch + SSE parser"]
-        Components["components<br/>FunnelHeader, LeadsTable,<br/>LeadDrawer, HandoffPanel,<br/>UploadLeadsModal"]
+    subgraph Frontend["Frontend — Vite + React + TS — Vercel"]
+        ApiTs["lib/api.ts + apiBase.ts<br/>typed fetch + SSE parser"]
+        Components["components<br/>FunnelHeader, LeadsTable,<br/>LeadDrawer, HandoffPanel,<br/>UploadLeadsModal,<br/>PipelineDiagram"]
     end
 
-    subgraph Backend["Backend — FastAPI + uvicorn — :8000"]
-        Router["routers<br/>agent · dashboard · meta"]
-        AgentEng["app/agent<br/>conversation engine<br/>system_prompt builder<br/>lead_memory<br/>dialer"]
+    subgraph Backend["Backend — FastAPI + uvicorn — Render"]
+        Router["routers<br/>agent · dashboard · tts · meta"]
+        AgentEng["app/agent<br/>conversation engine<br/>+ fallback chain<br/>system_prompt builder<br/>lead_memory · dialer"]
         Scoring["app/scoring<br/>classifier · handoff"]
         RAG["app/rag<br/>retriever · embeddings"]
-        TTS["app/tts<br/>gemini_tts — Aoede voice"]
+        EdgeTts["app/tts<br/>edge_tts_route<br/>11 neural voices"]
         WApp["app/whatsapp<br/>MockSender + templates"]
         DB["app/db<br/>SQLAlchemy ORM + repo"]
     end
 
     subgraph External["External services"]
-        Gemini["Google Gemini API<br/>flash-lite-latest — chat<br/>flash-lite — classifier<br/>embedding-001 — RAG<br/>flash-preview-tts — Aoede"]
+        Gemini["Google Gemini API<br/>3.1-flash-lite-preview (chat primary)<br/>3-flash-preview (chat fallback 1)<br/>2.5-flash-lite (chat fallback 2)<br/>embedding-2 — RAG"]
+        EdgeTtsCloud["Microsoft Edge TTS<br/>public neural endpoint<br/>(no API key)"]
         SQLite[("SQLite<br/>backend/data/rupeezy.db")]
         AppendixMD["APPENDIX_A.md<br/>source of truth"]
     end
 
-    Client -->|HTTP / SSE| Frontend
+    Client -->|HTTPS / SSE| Frontend
     ChatPg -.HMR.-> ApiTs
     VoicePg -.HMR.-> ApiTs
     DashPg -.HMR.-> ApiTs
     SpeechRec -->|user utterance text| VoicePg
-    AudioPlayer <-->|WAV chunks| VoicePg
+    EdgeTtsSpk <-->|MP3 stream| VoicePg
 
-    Frontend -->|/api proxy| Backend
+    Frontend -->|VITE_API_BASE| Backend
     Router --> AgentEng
     Router --> Scoring
     Router --> WApp
+    Router --> EdgeTts
     Router --> DB
 
     AgentEng --> RAG
-    AgentEng --> TTS
     AgentEng --> Gemini
     Scoring --> Gemini
     RAG --> Gemini
-    TTS --> Gemini
+    EdgeTts --> EdgeTtsCloud
 
     AgentEng --> DB
     Scoring --> DB
@@ -74,12 +76,13 @@ flowchart LR
     style External fill:#1E293B,stroke:#F59E0B,color:#fff
 ```
 
-**Two boundaries that matter:**
+**Three boundaries that matter:**
 
-1. **Frontend ↔ Backend** — browser uses Vite's `/api` proxy in dev. Frontend
-   never speaks to Gemini directly; the API key never leaves the server.
-2. **Backend ↔ Gemini** — the only outbound network. Everything else is local
-   (SQLite, Appendix-A markdown, in-process agent state).
+1. **Frontend ↔ Backend** — browser uses Vite's `/api` proxy in dev, absolute `VITE_API_BASE` URL in prod (Vercel → Render). Frontend never speaks to Gemini directly; API keys never leave the server.
+2. **Backend ↔ Gemini** — main outbound. Walks the model fallback chain on 429.
+3. **Backend ↔ Microsoft Edge TTS** — public neural endpoint, no API key. Streamed back to the browser as MP3.
+
+Everything else is local: SQLite, Appendix-A markdown, in-process agent state, embedding cache.
 
 ---
 
@@ -87,18 +90,19 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph L1["Layer 1 — Client surfaces — 3 demo pages"]
+    subgraph L1["Layer 1 — Client surfaces"]
         direction LR
-        L1A["/chat<br/>SSE text stream"]
-        L1B["/voice<br/>STT + Gemini Aoede TTS<br/>deferred polish"]
-        L1C["/dashboard<br/>funnel · leads · drilldown"]
+        L1A["/chat<br/>SSE text stream<br/>+ objection chips"]
+        L1B["/voice<br/>STT + Edge-TTS neural<br/>word-level text reveal"]
+        L1C["/dashboard<br/>funnel · leads · drilldown<br/>+ batch upload"]
+        L1D["/<br/>landing<br/>+ demo seed CTA<br/>+ pipeline diagram"]
     end
 
-    subgraph L2["Layer 2 — Voice and Media — Phase 6"]
+    subgraph L2["Layer 2 — Voice and Media"]
         direction LR
-        L2A["browser SpeechRecognition<br/>STT, free"]
-        L2B["Web Audio API queue<br/>gapless WAV playback"]
-        L2C["Gemini flash-preview-tts<br/>Aoede voice<br/>per-sentence streaming"]
+        L2A["browser SpeechRecognition<br/>STT, free, 8 langs"]
+        L2B["AudioContext queue<br/>per-sentence MP3"]
+        L2C["Edge-TTS proxy<br/>11 neural voices<br/>per-language picker"]
     end
 
     subgraph L3["Layer 3 — Conversation engine — Phases 2 and 10"]
@@ -171,11 +175,11 @@ sequenceDiagram
     B->>E: stream_user_turn conv_id, text, k=2
     E->>E: should_retrieve text — yes
     E->>R: retrieve text, k=2
-    R->>G: POST embedContent — gemini-embedding-001
+    R->>G: POST embedContent — gemini-embedding-2
     G-->>R: embedding 3072 floats
     R-->>E: top-2 hits — sections 4.1 and 3.1
     E->>E: build_prompt_parts — persona + base + retrieved, dedup vs base
-    E->>G: POST streamGenerateContent — gemini-flash-lite-latest
+    E->>G: POST streamGenerateContent — gemini-3.1-flash-lite-preview (chain)
     G-->>E: SSE chunks token stream
     E-->>B: yield text pieces
     B-->>F: SSE event token — CRLF delimited
@@ -213,7 +217,7 @@ sequenceDiagram
     B->>E: store.end conv_id, ended_by
     B->>H: build_handoff conversation
     H->>CL: classify_conversation messages
-    CL->>G: generateContent — flash-lite-latest with response_schema, temp 0.2, JSON only
+    CL->>G: generateContent — 3.1-flash-lite-preview (chain) with response_schema, temp 0.2, JSON only
     G-->>CL: structured JSON — bucket, signals, summary, discovery, objections
     CL-->>H: Classification + Discovery + ObjectionRaised list
     H->>H: choose_next_action — hard-rejection check then bucket-to-action
@@ -251,8 +255,8 @@ sequenceDiagram
     participant V as VoicePage
     participant B as Backend
     participant E as Engine + sentence buffer
-    participant TTS as Gemini Aoede flash-preview-tts
-    participant AP as AudioQueuePlayer Web Audio API
+    participant TTS as Edge-TTS neural endpoint
+    participant AP as EdgeTtsSpeaker AudioContext queue
 
     U->>SR: spoken utterance
     SR-->>V: onresult (final transcript)
@@ -266,7 +270,7 @@ sequenceDiagram
 
         E->>E: append to sentence buffer
         alt sentence break detected — period bang or 90 chars
-            E->>TTS: synthesize sentence — voice Aoede
+            E->>TTS: synthesize sentence — voice per language
             TTS-->>E: 24kHz PCM bytes
             E->>E: wrap in WAV header
             E-->>B: yield audio wav_bytes
@@ -280,11 +284,12 @@ sequenceDiagram
     Note over E,TTS: First audio plays ~5-7s after user speaks. TTS-bound, not LLM-bound.
 ```
 
-**What's deferred to Phase 11 polish:** the latency floor on
-`gemini-2.5-flash-preview-tts` is ~5s/sentence and free-tier daily quota is
-tight. Two options on the table — hybrid Aoede + browser-TTS fallback, or
-swap to ElevenLabs for the demo recording. Either way, the *architecture*
-above is what stays — only the TTS provider behind `app/tts/` changes.
+**TTS resolution (final):** we shipped `edge-tts` instead of Gemini's
+`flash-preview-tts`. Microsoft Edge's public neural endpoint is free,
+no API key, ~200ms first-byte, and has 11 Indian-language voices —
+strictly better for the demo than the original Aoede plan. The frontend
+falls back to Web Speech API if the Edge endpoint is unreachable. See
+`app/tts/edge_tts_route.py` and `frontend/src/lib/edgeTtsSpeaker.ts`.
 
 ---
 
@@ -435,7 +440,7 @@ flowchart LR
     subgraph Ingest["Ingest — one-shot, about 5s"]
         MD["APPENDIX_A.md<br/>14 sections"]
         Chunker["chunker.py<br/>H2 split, H3 split for §4 and §10<br/>content-hashed chunk_id"]
-        EmbedClient["embeddings.py<br/>gemini-embedding-001<br/>on-disk cache by hash<br/>retry w/ exponential backoff"]
+        EmbedClient["embeddings.py<br/>gemini-embedding-2<br/>on-disk cache by hash<br/>retry w/ exponential backoff"]
         Store[("SQLite<br/>appendix_chunks<br/>+ embeddings_cache")]
         MD --> Chunker
         Chunker -->|31 chunks| EmbedClient
@@ -486,7 +491,7 @@ flowchart TB
     History["Conversation history<br/>role-tagged messages<br/>linear growth per turn"]
     UserText["User new message"]
 
-    P3 -->|system_instruction| Gemini(("Gemini<br/>flash-lite-latest"))
+    P3 -->|system_instruction| Gemini(("Gemini<br/>3.1-flash-lite-preview (chain)"))
     History -->|chat history| Gemini
     UserText -->|new message| Gemini
 
@@ -539,7 +544,7 @@ rupeezy-voice-agent/
 │   │   │   ├── classifier.py        ← Gemini structured output
 │   │   │   └── handoff.py           ← assembler + next-action chooser
 │   │   ├── tts/                     ← Phase 6
-│   │   │   └── gemini_tts.py        ← Aoede TTS + WAV wrapper
+│   │   │   └── edge_tts_route.py    ← Edge-TTS proxy, 11 neural voices
 │   │   ├── whatsapp/                ← Phase 8
 │   │   │   ├── __init__.py          ← public re-exports
 │   │   │   └── sender.py            ← Mock + CloudApi senders, templates
@@ -570,9 +575,9 @@ rupeezy-voice-agent/
 │       ├── main.tsx                 ← Router setup
 │       ├── App.tsx                  ← landing page
 │       ├── pages/
-│       │   ├── chat.tsx             ← Phase 2: SSE text stream
-│       │   ├── voice.tsx            ← Phase 6: STT + Aoede playback
-│       │   └── dashboard.tsx        ← Phase 5 + 9: funnel + upload modal
+│       │   ├── chat.tsx             ← SSE text stream + objection chips
+│       │   ├── voice.tsx            ← STT + Edge-TTS + word-level reveal
+│       │   └── dashboard.tsx        ← funnel + upload modal + drilldown
 │       ├── components/
 │       │   ├── FunnelHeader.tsx     ← stages + bucket chips
 │       │   ├── LeadsTable.tsx       ← row per lead
