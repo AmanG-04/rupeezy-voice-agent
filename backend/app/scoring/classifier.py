@@ -234,27 +234,14 @@ async def classify_conversation(
         f"structured handoff JSON.\n\n---\n\n{transcript}"
     )
 
-    # Pro has tight free-tier quota and routinely 429s — every fallback round
-    # adds ~5-10s. For the dialer + most demo paths, flash-lite-latest is
-    # plenty for structured-output classification. Override with
-    # CLASSIFIER_MODEL=gemini-2.5-pro if you want the slower/sharper model.
+    # The classifier walks the same chain the conversation engine uses
+    # (settings.chat_model_chain). Override with CLASSIFIER_MODEL=<name>
+    # if you want to pin a single model for analysis.
     import os
-    primary = os.environ.get("CLASSIFIER_MODEL", "gemini-flash-lite-latest").strip()
-    if not primary:
-        primary = settings.gemini_reasoning_model
+    pinned = os.environ.get("CLASSIFIER_MODEL", "").strip()
+    chain = [pinned] if pinned else list(settings.chat_model_chain)
 
-    model = genai.GenerativeModel(
-        primary,
-        system_instruction=_RUBRIC,
-        generation_config={
-            "temperature": 0.2,        # this is analysis, not creativity
-            "max_output_tokens": 1500,
-            "response_mime_type": "application/json",
-            "response_schema": _RESPONSE_SCHEMA,
-        },
-    )
-
-    response = await _generate_with_fallback(model, user_payload)
+    response = await _generate_with_fallback(chain, user_payload)
 
     raw = response.text
     try:
@@ -278,32 +265,20 @@ async def classify_conversation(
     return classification, discovery, objections, unresolved, summary_short, language_used
 
 
-_FALLBACK_CHAIN = [
-    "gemini-flash-lite-latest",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash-lite",
-]
+async def _generate_with_fallback(chain: list[str], prompt: str) -> Any:
+    """Walks the model chain, trying each in turn. Returns the first
+    successful response. Raises if every model in the chain rate-limits.
 
-
-async def _generate_with_fallback(model: Any, prompt: str) -> Any:
-    """Tries the configured reasoning model; falls back through a chain of
-    flash-lite variants on rate limit.
-
-    Each variant in the chain hits a separate free-tier quota pool, so an
-    exhausted Pro model doesn't have to block the pipeline.
+    Each model in the chain hits a separate free-tier quota pool, so when
+    one exhausts we transparently switch to the next without blocking the
+    classifier pipeline.
     """
-    try:
-        return await model.generate_content_async(prompt)
-    except Exception as e:  # noqa: BLE001
-        emsg = str(e)
-        if "429" not in emsg and "quota" not in emsg.lower():
-            raise
-
-    for fallback_id in _FALLBACK_CHAIN:
-        log.warning("reasoning model rate-limited; trying fallback %s", fallback_id)
+    last_error: Exception | None = None
+    for idx, model_name in enumerate(chain):
+        log.info("classifier: trying %s (%d/%d)", model_name, idx + 1, len(chain))
         try:
-            fallback_model = genai.GenerativeModel(
-                fallback_id,
+            model = genai.GenerativeModel(
+                model_name,
                 system_instruction=_RUBRIC,
                 generation_config={
                     "temperature": 0.2,
@@ -312,14 +287,17 @@ async def _generate_with_fallback(model: Any, prompt: str) -> Any:
                     "response_schema": _RESPONSE_SCHEMA,
                 },
             )
-            return await fallback_model.generate_content_async(prompt)
+            return await model.generate_content_async(prompt)
         except Exception as e:  # noqa: BLE001
+            last_error = e
             emsg = str(e)
             if "429" not in emsg and "quota" not in emsg.lower():
+                # Non-quota errors are immediately fatal — don't pretend
+                # the next model would have done better.
                 raise
+            log.warning("classifier %s rate-limited; trying next in chain", model_name)
             continue
 
     raise RuntimeError(
-        "All Gemini fallback models are rate-limited. "
-        "Wait for quota to reset or upgrade the API tier."
+        f"All {len(chain)} Gemini models rate-limited; last error: {last_error}"
     )

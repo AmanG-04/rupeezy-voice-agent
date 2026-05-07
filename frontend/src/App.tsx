@@ -9,6 +9,7 @@ import {
   CircleAlert,
   PlayCircle,
   Loader2,
+  ChevronRight,
 } from 'lucide-react';
 import { Brand } from './components/Brand';
 import PipelineDiagram from './components/PipelineDiagram';
@@ -22,6 +23,7 @@ interface Health {
 interface Version {
   version: string;
   chat_model: string;
+  chat_model_chain?: string[];
   reasoning_model: string;
   embedding_model: string;
   tts_engine?: string;
@@ -218,7 +220,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-rupeezy-border rounded-lg overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-rupeezy-border rounded-lg overflow-hidden mb-px">
               <StatRow
                 label="API"
                 value={health ? 'reachable' : '—'}
@@ -234,11 +236,6 @@ export default function App() {
                 truncate
               />
               <StatRow
-                label="Chat model"
-                value={version?.chat_model ?? '—'}
-                truncate
-              />
-              <StatRow
                 label="Reasoning model"
                 value={version?.reasoning_model ?? '—'}
                 truncate
@@ -248,6 +245,18 @@ export default function App() {
                 value={version?.embedding_model ?? '—'}
                 truncate
               />
+              <StatRow
+                label="Chat model"
+                value={version?.chat_model ?? '—'}
+                truncate
+              />
+            </div>
+
+            {/* Chat-model fallback chain — full row spanning all columns.
+                On 429 the engine walks down this list so the demo never
+                goes dark mid-call when one model's daily quota exhausts. */}
+            <div className="mt-px">
+              <ModelChainRow chain={version?.chat_model_chain} />
             </div>
           </div>
         </section>
@@ -362,6 +371,46 @@ function StatRow({
         title={truncate ? value : undefined}
       >
         {value}
+      </div>
+    </div>
+  );
+}
+
+function ModelChainRow({ chain }: { chain?: string[] }) {
+  if (!chain || chain.length === 0) return null;
+  return (
+    <div className="bg-rupeezy-card rounded-lg px-4 py-3.5 border border-rupeezy-border">
+      <div className="flex items-baseline gap-3 mb-2">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-rupeezy-fg-faint">
+          Chat-model fallback chain
+        </div>
+        <div className="text-[10px] text-rupeezy-fg-faint font-mono">
+          tries each in order on quota-exhausted (429)
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {chain.map((m, i) => (
+          <div key={m} className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-mono text-[11px] border ${
+                i === 0
+                  ? 'bg-rupeezy-accent-faint text-rupeezy-accent border-rupeezy-accent/30'
+                  : 'bg-rupeezy-card text-rupeezy-fg-muted border-rupeezy-border'
+              }`}
+              title={i === 0 ? 'Primary model' : `Fallback ${i}`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  i === 0 ? 'bg-rupeezy-accent' : 'bg-rupeezy-fg-faint'
+                }`}
+              />
+              {m}
+            </span>
+            {i < chain.length - 1 && (
+              <ChevronRight size={12} className="text-rupeezy-fg-faint" />
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

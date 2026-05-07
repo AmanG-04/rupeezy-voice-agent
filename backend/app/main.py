@@ -74,10 +74,13 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/version", tags=["meta"])
-async def version() -> dict[str, str]:
+async def version() -> dict:
     return {
         "version": __version__,
         "chat_model": settings.gemini_chat_model,
+        # The full chain — primary first, fallbacks after. The frontend
+        # System Status panel renders this so judges see the resilience.
+        "chat_model_chain": settings.chat_model_chain,
         "reasoning_model": settings.gemini_reasoning_model,
         "embedding_model": settings.gemini_embedding_model,
         # Hard-coded — TTS is wired to Microsoft Edge's free public neural

@@ -287,75 +287,99 @@ async def stream_user_turn(
     system_instruction = parts.assemble()
 
     settings = get_settings()
-    model = genai.GenerativeModel(
-        settings.gemini_chat_model,
-        system_instruction=system_instruction,
-        generation_config=GENERATION_CONFIG,
-        safety_settings=SAFETY_SETTINGS,
-    )
+    chain = settings.chat_model_chain
 
     # History EXCLUDES the just-added user turn — Gemini takes that as the
     # "new" message via send_message.
     history = conv.to_history()[:-1]
-    chat = model.start_chat(history=history)
 
     response_text_parts: list[str] = []
     is_rate_limit = False
     annotation_stripped = False
     chunk_count = 0
+    used_model: str | None = None
 
-    try:
-        # google-generativeai's stream is a sync iterator; we wrap it in async.
-        stream = chat.send_message(user_text, stream=True)
-        for chunk in stream:
-            piece = getattr(chunk, "text", "") or ""
-            if not piece:
-                continue
-            chunk_count += 1
-            # Strip a leading "(English)\n" / "[Aria]:" annotation only on the
-            # first non-empty chunk. If the model splits the annotation across
-            # multiple chunks (rare), we accept the small leak rather than
-            # buffer (which delays first-token rendering).
-            if not annotation_stripped:
-                piece = _LEADING_ANNOTATION.sub("", piece)
-                annotation_stripped = True
+    # Walk the chain. Switch to the next model only if THIS one fails BEFORE
+    # we yielded anything user-visible. After the first chunk lands, the
+    # client has already started rendering — at that point any failure is
+    # surfaced as the polite filler instead of a silent model switch.
+    for model_idx, model_name in enumerate(chain):
+        if response_text_parts:
+            break  # already streamed something — don't restart on a different model
+
+        log.info("turn | conv=%s model=%s (try %d/%d)",
+                 conv_id, model_name, model_idx + 1, len(chain))
+        model = genai.GenerativeModel(
+            model_name,
+            system_instruction=system_instruction,
+            generation_config=GENERATION_CONFIG,
+            safety_settings=SAFETY_SETTINGS,
+        )
+        chat = model.start_chat(history=history)
+
+        try:
+            stream = chat.send_message(user_text, stream=True)
+            for chunk in stream:
+                piece = getattr(chunk, "text", "") or ""
                 if not piece:
                     continue
-            response_text_parts.append(piece)
-            yield piece
-    except Exception as e:  # noqa: BLE001
-        # Detect rate limit (429) — it has a clear, separate fallback line.
-        emsg = str(e)
-        if "429" in emsg or "quota" in emsg.lower() or "rate" in emsg.lower():
-            is_rate_limit = True
-            fallback = (
-                "Just a second — let me check that and get back to you."
-            )
-        else:
-            log.exception("Gemini streaming failed")
-            fallback = (
-                "Sorry, I lost the line for a moment. Could you say that again?"
-            )
-            log.error("error detail: %s", e)
-        response_text_parts.append(fallback)
-        yield fallback
+                chunk_count += 1
+                if not annotation_stripped:
+                    piece = _LEADING_ANNOTATION.sub("", piece)
+                    annotation_stripped = True
+                    if not piece:
+                        continue
+                response_text_parts.append(piece)
+                used_model = model_name
+                yield piece
+        except Exception as e:  # noqa: BLE001
+            emsg = str(e)
+            is_quota = "429" in emsg or "quota" in emsg.lower() or "rate" in emsg.lower()
+
+            if response_text_parts:
+                # Mid-stream failure — can't switch models cleanly. Send the
+                # polite filler so the UI completes the turn.
+                log.warning("mid-stream failure on %s after %d chunks: %s",
+                            model_name, chunk_count, emsg[:200])
+                filler = "Sorry, I lost the line for a moment. Could you say that again?"
+                response_text_parts.append(filler)
+                yield filler
+                break
+
+            if is_quota and model_idx + 1 < len(chain):
+                # Quota exhausted on this model and we have more to try.
+                next_model = chain[model_idx + 1]
+                log.warning("model %s rate-limited; falling back to %s",
+                            model_name, next_model)
+                continue
+
+            if is_quota:
+                # Last model in the chain also rate-limited — surface a
+                # quota-specific filler.
+                log.warning("all %d models in chain rate-limited", len(chain))
+                is_rate_limit = True
+                fallback = "Just a second — let me check that and get back to you."
+            else:
+                log.exception("Gemini call failed (non-quota) on %s", model_name)
+                fallback = "Sorry, I lost the line for a moment. Could you say that again?"
+            response_text_parts.append(fallback)
+            yield fallback
+            break
 
     full_text = "".join(response_text_parts).strip()
     log.info(
-        "turn done | conv=%s chunks=%d reply_chars=%d rate_limited=%s",
-        conv_id, chunk_count, len(full_text), is_rate_limit,
+        "turn done | conv=%s model=%s chunks=%d reply_chars=%d rate_limited=%s",
+        conv_id, used_model or "none", chunk_count, len(full_text), is_rate_limit,
     )
     if full_text:
         conv.add("assistant", full_text)
     elif not is_rate_limit:
-        # Model returned nothing (safety filter, content blocked, empty stream).
-        # Send a graceful filler so the UI doesn't sit empty forever.
         log.warning("model returned empty reply; sending filler")
         filler = "Sorry, could you say that again?"
         conv.add("assistant", filler)
         yield filler
     if is_rate_limit:
-        log.warning("rate-limited; consider pacing turns or upgrading API tier")
+        log.warning("rate-limited across all chain models; pacing recommended")
 
     # Best-effort persistence: write conversation snapshot to the DB. Failures
     # do not affect the user response — the in-memory store is still authoritative

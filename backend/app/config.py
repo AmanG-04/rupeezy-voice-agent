@@ -25,9 +25,27 @@ class Settings(BaseSettings):
     )
 
     # --- Gemini ---
+    # gemini_chat_model is the *primary* model. If the request 429s
+    # (rate-limit / daily-quota exhausted), the engine walks down
+    # gemini_chat_model_fallbacks (comma-separated) in order. This means
+    # the demo never goes dark mid-call when a single model's free-tier
+    # quota is hit — we just transparently switch to the next model.
+    #
+    # Default chain (May 2026):
+    #   1. gemini-3.1-flash-lite-preview  — newest, ~500/day free quota
+    #   2. gemini-3-flash-preview         — broader feature set, separate quota pool
+    #   3. gemini-2.5-flash-lite          — last-resort, smallest free quota
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_chat_model: str = Field(default="gemini-2.5-flash-lite", alias="GEMINI_CHAT_MODEL")
-    gemini_reasoning_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_REASONING_MODEL")
+    gemini_chat_model: str = Field(
+        default="gemini-3.1-flash-lite-preview", alias="GEMINI_CHAT_MODEL"
+    )
+    gemini_chat_model_fallbacks: str = Field(
+        default="gemini-3-flash-preview,gemini-2.5-flash-lite",
+        alias="GEMINI_CHAT_MODEL_FALLBACKS",
+    )
+    gemini_reasoning_model: str = Field(
+        default="gemini-3.1-flash-lite-preview", alias="GEMINI_REASONING_MODEL"
+    )
     gemini_embedding_model: str = Field(
         default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL"
     )
@@ -51,6 +69,19 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]
+
+    @property
+    def chat_model_chain(self) -> list[str]:
+        """Primary model first, then each fallback in order. Empty entries
+        and duplicates are dropped."""
+        chain: list[str] = []
+        seen: set[str] = set()
+        for candidate in [self.gemini_chat_model, *self.gemini_chat_model_fallbacks.split(",")]:
+            name = candidate.strip()
+            if name and name not in seen:
+                chain.append(name)
+                seen.add(name)
+        return chain
 
 
 @lru_cache(maxsize=1)
