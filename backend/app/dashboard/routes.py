@@ -112,7 +112,17 @@ async def leads(bucket: str | None = None, limit: int = 200) -> list[LeadRow]:
 # this, a request to '/leads/queue' would be swallowed by the path param.
 
 
-_ALLOWED_LANGS = {"english", "hindi", "hinglish", "other"}
+_ALLOWED_LANGS = {
+    "english",
+    "hindi",
+    "hinglish",
+    "tamil",
+    "telugu",
+    "marathi",
+    "gujarati",
+    "bengali",
+    "other",
+}
 
 
 class BatchUploadResponse(BaseModel):

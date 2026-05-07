@@ -38,9 +38,9 @@ const COLD_NAMES = [
   'Kabir Saxena', 'Sandeep Joshi', 'Tridib Chakraborty',
 ];
 
-const HOT_LANGS = ['english', 'hinglish'];
-const WARM_LANGS = ['hindi', 'hinglish', 'english'];
-const COLD_LANGS = ['english', 'hindi'];
+const HOT_LANGS = ['english', 'hinglish', 'tamil', 'telugu'];
+const WARM_LANGS = ['hindi', 'hinglish', 'english', 'marathi', 'gujarati'];
+const COLD_LANGS = ['english', 'hindi', 'bengali'];
 
 const SOURCES = ['referral', 'website', 'linkedin', 'youtube', 'instagram', 'whatsapp', 'inbound'];
 

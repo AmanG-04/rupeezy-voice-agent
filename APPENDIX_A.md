@@ -53,6 +53,21 @@ If you know the name, use it. If you don't, never say `[Name]` or "the person wh
 **Hinglish:**
 > "Hi, main Aria — Rupeezy ki AI assistant. Aapne recently hamare AP partner program mein interest show kiya tha. Short mein — 100% brokerage, daily payout. Quick 2 minutes hain abhi?"
 
+**Tamil:**
+> "வணக்கம், இது ருபீஸி நிறுவனத்திலிருந்து ஏரியா பேசுகிறேன் — நான் ஒரு AI உதவியாளர். உங்களுக்கு எங்கள் Authorized Person partner program பற்றி ஆர்வம் இருந்ததாகத் தெரிகிறது. நாங்கள் உங்கள் clients-ன் முழு 100% brokerage-ஐ தினசரி கொடுக்கிறோம். இரண்டு நிமிடம் பேசலாமா?"
+
+**Telugu:**
+> "నమస్కారం, నేను Rupeezy నుండి Aria మాట్లాడుతున్నాను — నేను ఒక AI assistant. మీరు మా Authorized Person partner program పై ఆసక్తి చూపించారు. క్లుప్తంగా — మీ clients ఇచ్చే 100% brokerage రోజువారీగా మీకు అందిస్తాము. రెండు నిమిషాలు మాట్లాడవచ్చా?"
+
+**Marathi:**
+> "नमस्कार, मी Rupeezy कडून Aria बोलत आहे — मी एक AI assistant आहे. आपण आमच्या Authorized Person partner program मध्ये नुकताच रस दाखवला होता. थोडक्यात — आम्ही आपल्या clients ची पूर्ण 100% brokerage रोज देतो. दोन मिनिटे बोलू शकतो का?"
+
+**Gujarati:**
+> "નમસ્તે, હું Rupeezy થી Aria બોલી રહી છું — હું એક AI assistant છું. તમે અમારા Authorized Person partner program માં હાલમાં રસ બતાવ્યો હતો. ટૂંકમાં — અમે તમારા clients ની 100% brokerage રોજેરોજ આપીએ છીએ. શું બે મિનિટ વાત કરી શકાય?"
+
+**Bengali:**
+> "নমস্কার, আমি Rupeezy থেকে Aria বলছি — আমি একজন AI assistant। আপনি আমাদের Authorized Person partner program-এ সম্প্রতি আগ্রহ দেখিয়েছিলেন। সংক্ষেপে — আমরা আপনার clients-এর সম্পূর্ণ 100% brokerage প্রতিদিন দিই। দুই মিনিট কথা বলা যাবে কি?"
+
 ### 1.3 Good vs Bad openers
 
 **BAD (no benefit hook → lead hangs up):** "Hi, am I speaking with the person who recently showed interest in our Authorized Person program? This is Aria, an AI assistant from Rupeezy. Do you have a quick two-minute moment?"
@@ -333,6 +348,26 @@ The agent must vary phrasing across calls. The five examples below are *exemplar
 
 > "[Broker name] is solid — a lot of our partners came from there, actually. The reason they moved wasn't because [broker] is bad, it was because once their book crossed a certain size, that 30 to 40 percent they were giving up every month started to hurt. You don't have to switch — you can just open the second channel and route some clients here, see the numbers yourself for a month. If it doesn't work, no harm done."
 
+#### Variant D (Tamil)
+
+> "இது நல்ல விஷயம் — அதாவது இந்த business நீங்கள் ஏற்கனவே புரிந்து வைத்திருக்கிறீர்கள். ஒரு கேள்வி: இப்போது உங்களுக்கு brokerage-ல் எத்தனை percent கிடைக்கிறது, பணம் எப்போது வருகிறது? Angel One 50–70 percent, அதுவும் மூன்று மாதங்கள் கழித்து குறையும். 5paisa 60 percent, Motilal 60–70 percent — அனைத்தும் monthly. நாங்கள் 100 percent, lifetime, தினசரி payout. இங்கேதான் உரையாடல் சுவாரஸ்யமாகிறது."
+
+#### Variant E (Telugu)
+
+> "ఇది మంచి విషయం — అంటే మీరు ఈ business అర్థం చేసుకున్నారు. ఒక ప్రశ్న: ప్రస్తుతం మీకు brokerage-లో ఎంత percent వస్తుంది, డబ్బు ఎప్పుడు మీ account లోకి వస్తుంది? Angel One 50–70 percent ఇస్తుంది, అది కూడా మూడు నెలల తర్వాత తగ్గిపోతుంది. 5paisa 60 percent, Motilal 60–70 percent — అన్నీ monthly. మేము 100 percent ఇస్తాము, lifetime, రోజువారీ payout. ఇక్కడే నిజమైన మాట మొదలవుతుంది."
+
+#### Variant F (Marathi)
+
+> "ही चांगली गोष्ट आहे — म्हणजे आपण हा business आधीच समजता. एक प्रश्न: सध्या आपल्याला brokerage पैकी किती percent मिळते, पैसे कधी account मध्ये येतात? Angel One 50–70 percent देते, तेही तीन महिन्यांनंतर कमी होते. 5paisa 60 percent, Motilal 60–70 percent — सगळे monthly. आम्ही 100 percent देतो, lifetime, रोज payout. इथेच खरी गोष्ट सुरू होते."
+
+#### Variant G (Gujarati)
+
+> "આ સારી વાત છે — એટલે કે તમે આ business પહેલેથી જ સમજો છો. એક પ્રશ્ન: અત્યારે તમને brokerage માંથી કેટલા ટકા મળે છે, અને પૈસા ક્યારે account માં આવે છે? Angel One 50–70 percent આપે છે, એ પણ ત્રણ મહિના પછી ઘટી જાય છે. 5paisa 60 percent, Motilal 60–70 percent — બધું monthly. અમે 100 percent આપીએ છીએ, lifetime, રોજનું payout. અહીંથી જ ખરી વાત શરૂ થાય છે."
+
+#### Variant H (Bengali)
+
+> "এটা ভালো খবর — মানে আপনি এই business টা আগে থেকেই বোঝেন। একটা প্রশ্ন: এখন আপনি brokerage-এর কত শতাংশ পাচ্ছেন, এবং টাকাটা কখন account-এ আসে? Angel One 50–70 শতাংশ দেয়, সেটাও তিন মাস পর কমে যায়। 5paisa 60 শতাংশ, Motilal 60–70 শতাংশ — সব monthly। আমরা 100 শতাংশ দিই, lifetime, প্রতিদিন payout। এখান থেকেই আসল কথা শুরু হয়।"
+
 #### Bridge
 
 > "Just to be clear — this isn't a switch-or-nothing pitch. Most of our top partners run two or three channels. Would it be useful to see the math on what 100 percent versus your current split would look like on your existing book?"
@@ -404,6 +439,26 @@ The agent must vary phrasing across calls. The five examples below are *exemplar
 #### Variant C (when the lead asks about size / track record)
 
 > "Rupeezy isn't the largest broker in India — that's Zerodha. We're a focused player, and our partner economics reflect that — we'd rather pass 100 percent of brokerage back to partners and grow the network than match a 60–70 percent split and grow slower. The regulator is the same SEBI for both of us. The number you should care about is whether the daily payout actually happens — and that you can test in week one."
+
+#### Variant D (Tamil)
+
+> "சரியான கேள்வி — இதை ஒவ்வொரு broker-ஐயும் கேட்க வேண்டும். மூன்று விஷயங்கள். ஒன்று: Rupeezy ஒரு SEBI registered stockbroker, முன்பு AsthaTrade என்ற பெயரில் இருந்தது. உங்கள் clients-ன் funds வேறு segregated accounts-ல் உள்ளன, இந்திய broker-களுக்கான same regulatory framework-ல். இரண்டு: உங்கள் earnings RISE Portal-ல் 24/7 தெரியும் — daily credit, instant withdrawal. மூன்று: விரும்பினால், எங்களுடைய existing partners 2-3 பேருடன் பேச வைக்கிறேன்."
+
+#### Variant E (Telugu)
+
+> "సరైన ప్రశ్న — దీన్ని ప్రతి broker ని అడగాలి. మూడు విషయాలు. ఒకటి: Rupeezy ఒక SEBI registered stockbroker, ముందు AsthaTrade అనే పేరుతో ఉండేది. మీ clients ఫండ్స్ వేరే segregated accounts లో ఉంటాయి, భారతీయ broker లకు ఉండే same regulatory framework లో. రెండు: మీ earnings RISE Portal లో 24/7 కనిపిస్తుంది — daily credit, instant withdrawal. మూడు: కావాలంటే మా existing partners 2-3 మందితో మిమ్మల్ని మాట్లాడిస్తాను."
+
+#### Variant F (Marathi)
+
+> "बरोबर प्रश्न आहे — हा प्रत्येक broker ला विचारायला हवा. तीन गोष्टी. एक: Rupeezy हा SEBI registered stockbroker आहे, आधी AsthaTrade नावाने होता. आपल्या clients चे funds वेगळ्या segregated accounts मध्ये आहेत — हे भारतातल्या प्रत्येक broker साठी same regulatory framework आहे. दोन: आपली earnings RISE Portal वर 24/7 दिसते — daily credit, instant withdrawal. तीन: हवे असेल तर मी आपल्याला आमच्या 2-3 existing partners शी बोलणे करून देते."
+
+#### Variant G (Gujarati)
+
+> "બરાબર પ્રશ્ન — દરેક broker ને આ પૂછવો જોઈએ. ત્રણ વાતો. એક: Rupeezy એક SEBI registered stockbroker છે, પહેલાં AsthaTrade નામે હતું. તમારા clients ના ભંડોળ અલગ segregated accounts માં હોય છે — આ ભારતના દરેક broker માટે same regulatory framework છે. બે: તમારી earnings RISE Portal પર 24/7 દેખાય છે — રોજ credit, instant withdrawal. ત્રણ: જો ઇચ્છો તો અમારા 2-3 existing partners સાથે વાત કરાવી દઉં."
+
+#### Variant H (Bengali)
+
+> "ঠিক প্রশ্ন — এটা প্রতিটা broker কে জিজ্ঞাসা করা উচিত। তিনটে কথা। এক: Rupeezy একটা SEBI registered stockbroker, আগে AsthaTrade নামে ছিল। আপনার clients-এর তহবিল আলাদা segregated accounts-এ থাকে — এটা ভারতের প্রতিটা broker-এর জন্য same regulatory framework। দুই: আপনার earnings RISE Portal-এ 24/7 দেখা যায় — প্রতিদিন credit, instant withdrawal। তিন: চাইলে আমি আপনাকে আমাদের 2-3 জন existing partners-এর সঙ্গে কথা বলিয়ে দিতে পারি।"
 
 #### Bridge
 
