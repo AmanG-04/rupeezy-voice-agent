@@ -1,35 +1,91 @@
 # Rupeezy AI Voice Agent
 
-> AI voice agent that pitches Rupeezy's Authorized Person (AP) partner program to incoming leads in their language, handles the 5 core objections, qualifies them as Hot / Warm / Cold, and hands qualified leads to a human RM with full conversation context.
+> Multilingual AI voice agent that pitches Rupeezy's Authorized Person partner program, qualifies leads as **Hot / Warm / Cold**, and hands them off to RMs with full conversation context — calls every lead in their language, within minutes, no after-hours gap.
 >
-> Built for **PanIIT AI for Bharat — Theme 7** (PAN IIT Bangalore × Government of Karnataka, Apr–May 2026).
+> Built for **PanIIT AI for Bharat — Theme 7** (Apr–May 2026).
 
-## The problem in one breath
+---
 
-Rupeezy's AP partner program converts only 18% of leads. The product is competitive (zero joining fee, 100% lifetime brokerage share, daily payouts via RISE Portal) — the failure is structural: leads arrive after-hours, RMs speak 1–2 languages while the addressable market spans 20+, and one RM = one call at a time. This agent removes those bottlenecks.
+## 60-second tour for judges
 
-## What's in the repo
+Three URLs, in this order. Total time to see everything end-to-end: about a minute.
 
-| File / dir | Purpose |
-|---|---|
-| `APPENDIX_A.md` | The agent's source of truth — script, FAQ, hard facts, objection rebuttals (verified against rupeezy.in) |
-| `PROJECT_CONTEXT.md` | Hackathon brief + tech-stack rationale |
-| `PLAN.md` | 13-phase build plan with time caps and acceptance criteria |
-| `ARCHITECTURE.md` | **Diagrams** — system overview, request flows per phase, DB schema, file map |
-| `backend/` | FastAPI + Gemini + RAG + scoring |
-| `frontend/` | Vite + React + Tailwind. Three demo surfaces: text chat, voice, RM dashboard |
-| `scripts/` | Appendix ingestion, demo seed data |
-| `demo_transcripts/` | Captured live runs from each phase (English / Hindi / Hinglish / mid-call switch) |
+1. **`/`** — landing page. Click **"Run live demo"**. The system seeds 4 distinct leads (HOT advisor, WARM Hindi MFD, COLD busy influencer, DND hostile), routes you to the dashboard, and dials each one through the real conversation engine. Watch the funnel populate.
+2. **`/voice`** — talk to Aria yourself. Pick a language (8 supported, including Tamil/Telugu/Marathi/Gujarati/Bengali). The mic button starts a real-time voice loop: browser STT → Gemini → neural TTS via Microsoft Edge's free public endpoint. Text on screen reveals word-by-word in lockstep with audio.
+3. **`/dashboard`** — click any lead row. The drawer shows the full handoff payload: bucket + confidence, 7-signal score breakdown, objections raised + resolution status, unresolved questions, the WhatsApp template that fired, full transcript.
+
+That's the demo. Everything below is for evaluators who want to see how it's wired.
+
+---
+
+## What the judging rubric asks for, and where to find it
+
+| Rubric item | Where it lives |
+| --- | --- |
+| Real-time, two-way conversation | `/voice` page; backend at `app/agent/conversation.py` (SSE streaming) |
+| Conversation quality | 4-layer system prompt in `app/agent/system_prompt.py` (persona + prior call + base appendix + retrieved chunks) |
+| Multilingual handling | Persona rule "match the lead's language"; per-language voice picker in `app/tts/edge_tts_route.py` |
+| Qualification logic | 7-signal classifier in `app/scoring/` — stated_intent / engagement / network_size / objection_pattern / affirmative_cues / deferrals + hangup |
+| Handoff design | `frontend/src/components/HandoffPanel.tsx` — bucket card, signal bars, objection rows with resolution, unresolved questions, WhatsApp dispatch log |
+| Batch upload + immediate calling | Dashboard → "Upload leads" → CSV → "Process queue". Real conversations through Gemini, not stubs. |
+| Hot/Warm/Cold routing | `app/scoring/handoff.py:choose_next_action` — Hot→warm transfer, Warm→WhatsApp link, Cold→14-day nurture, DND→suppress |
+| Funnel dashboard | `/dashboard` — Contacted → Engaged → Qualified counts, Hot/Warm/Cold split, transcripts, WhatsApp logs |
+
+---
+
+## Architecture
+
+```
+                       During the call
+   ┌──────────┐   ┌──────────┐   ┌─────────────┐   ┌─────────────┐
+   │ Web      │──▶│ Gemini   │──▶│ RAG over    │──▶│ Edge-TTS    │
+   │ Speech   │   │ flash-   │   │ Appendix A  │   │ neural      │
+   │ STT      │   │ lite     │   │ (embed-001) │   │ (Aria/      │
+   │ (browser)│   │ + 4-     │   │ content-    │   │  Neerja/    │
+   │          │   │ layer    │   │ hashed cache│   │  Swara/...) │
+   └──────────┘   │ prompt   │   └─────────────┘   └─────────────┘
+                  └────┬─────┘
+                       │ on call end
+                       ▼
+                       After the call
+   ┌──────────────┐   ┌──────────────────────────┐
+   │ Classifier   │──▶│ Handoff                  │
+   │ flash-lite   │   │ ├─ HOT  → warm transfer  │
+   │ 7-signal     │   │ ├─ WARM → WhatsApp link  │
+   │ score        │   │ ├─ COLD → 14-d nurture   │
+   │              │   │ └─ DND  → suppress       │
+   └──────────────┘   └──────────────────────────┘
+```
+
+`ARCHITECTURE.md` has the full Mermaid diagrams (request flows, DB schema, file map).
+
+---
+
+## Tech stack — free-tier-first, no API key for TTS
+
+| Layer | Choice | Notes |
+| --- | --- | --- |
+| STT | Web Speech API (browser-native) | Free, 8 languages tested, no API key |
+| Conversation brain | Gemini 2.5 flash-lite | Streaming SSE, multilingual, low latency |
+| Post-call classifier | Gemini 2.5 flash-lite | Same model — Pro fallback wired but not needed for current quality |
+| Embeddings | `gemini-embedding-001` | Content-hashed disk cache so re-runs cost nothing |
+| TTS | **edge-tts** (Microsoft Edge's public neural endpoint) | **Free, no API key** — works for every visitor regardless of OS. Falls back to Web Speech API if unreachable. |
+| Backend | FastAPI + Python 3.11 | Async, SSE streaming |
+| Frontend | React + Vite + Tailwind | Dark glass design system |
+| Storage | SQLite (SQLAlchemy 2.0) | One file, zero ops; ready to swap for Postgres |
+| WhatsApp | Mock sender (logs to DB, renders Appendix §9 templates) | Cloud API wiring stubbed but not invoked — explicitly per scope |
+
+---
 
 ## Quick start
 
-You'll need: Python 3.11+, Node 20+, a free Gemini API key from https://aistudio.google.com/app/apikey.
+You'll need: Python 3.11+, Node 20+, a free Gemini API key from <https://aistudio.google.com/app/apikey>.
 
-### 1. Configure environment
+### 1. Configure
 
 ```powershell
 copy .env.example .env
-# edit .env and set GEMINI_API_KEY (everything else can wait)
+# edit .env and set GEMINI_API_KEY
 ```
 
 ### 2. Backend
@@ -52,62 +108,40 @@ npm run dev
 # → http://localhost:5173
 ```
 
-The frontend proxies `/api/*` and `/health` to the backend automatically (see `vite.config.ts`).
+The frontend proxies `/api/*`, `/health` to the backend (see `vite.config.ts`).
 
-## Architecture (high level)
+### 4. Run the demo
 
-```
-Browser ── voice (LiveKit WebRTC) / text (SSE) ──→ FastAPI
-                                                     │
-                                       ┌─────────────┼─────────────┐
-                                       ↓             ↓             ↓
-                                  Gemini Live   RAG (pgvector)  Gemini Pro
-                                  (audio loop)  Appendix A      (post-call
-                                                                 H/W/C + summary)
-                                                     │
-                                                     ↓
-                                                 Supabase
-                                                     │
-                                       ┌─────────────┼─────────────┐
-                                       ↓             ↓             ↓
-                                   Dashboard    Transcripts    WhatsApp
-                                   (funnel,    (per-call)     (Hot/Warm
-                                   leads,                      handoff)
-                                   handoff)
-```
+Open <http://localhost:5173>, click **"Run live demo"**. Done.
 
-See `PLAN.md` for phase-by-phase build order and `PROJECT_CONTEXT.md §6` for the layered architecture in detail.
+---
 
-## Tech stack & why (free-tier first)
+## Repository layout
 
-| Layer | Choice | Reason |
-|---|---|---|
-| Voice transport | LiveKit Cloud (free) | WebRTC rooms, telephony-ready via SIP |
-| Voice loop | Gemini Live (native audio) | STT + LLM + TTS in one WebSocket — no Deepgram/ElevenLabs needed |
-| Conversation brain | Gemini 2.5 Flash | Low latency, multilingual, streaming |
-| Post-call reasoning | Gemini 2.5 Pro | Quality > latency for summary + scoring |
-| Embeddings | Gemini `text-embedding-004` | Same API key as everything else |
-| Backend | FastAPI (Python) | Async, fast iteration |
-| Frontend | React + Vite + Tailwind | Cheap to deploy on Vercel |
-| Storage | Supabase (Postgres + pgvector) | One DB for transactional + vector |
-| WhatsApp | Meta Cloud API sandbox (mocked in demo) | Free test numbers |
+| Path | Purpose |
+| --- | --- |
+| `APPENDIX_A.md` | Agent's source of truth — script, FAQ, hard facts, 5 core objection rebuttals, tax/GST, RISE Portal, worked partner economics |
+| `ARCHITECTURE.md` | Mermaid diagrams (system, request flows, DB schema, file map) |
+| `PLAN.md` | 13-phase build plan with status tracker |
+| `PROJECT_CONTEXT.md` | Hackathon brief + tech-stack rationale |
+| `backend/app/agent/` | Conversation loop, dialer, system-prompt builder |
+| `backend/app/rag/` | Markdown chunker (H2-split), embedder with on-disk cache, retriever |
+| `backend/app/scoring/` | 7-signal classifier, handoff payload builder |
+| `backend/app/tts/edge_tts_route.py` | Edge-TTS proxy → neural voices for any visitor |
+| `backend/app/whatsapp/` | Mock sender, Appendix §9 templates |
+| `frontend/src/pages/` | Landing, chat, voice, dashboard |
+| `frontend/src/lib/edgeTtsSpeaker.ts` | Sentence-streaming neural TTS with word-level text reveal |
+| `frontend/src/lib/objectionDetect.ts` | Client-side keyword detector → live objection chips in transcript |
+| `frontend/src/components/PipelineDiagram.tsx` | The architecture card on the landing page |
 
-## Hackathon scope
-
-- **Round 1 (concept):** submitted (`AI_Voice_Agent_Round1_Solution.pdf`)
-- **Round 2 (prototype):** this repo
-  - [ ] Working prototype (text + voice)
-  - [ ] 5-min walkthrough video
-  - [ ] Public GitHub repo (this one)
-
-Track progress in `PLAN.md` § Status tracker.
+---
 
 ## Honest disclosures
 
-- **Appendix A** is drafted from publicly available Rupeezy sources (rupeezy.in, support.rupeezy.in, RISE Portal). When the hackathon organizers release an official Appendix A, it replaces this one wholesale — see `APPENDIX_A.md` §13.
-- **WhatsApp send** is mocked for the demo. Real Cloud API integration is a later step.
-- **No real telephony** — judges explicitly accept browser voice / text simulation.
-- **All code in this repo was written during the hackathon window**, per Theme 7 rules.
+- **Appendix A** is drafted from publicly available Rupeezy sources (rupeezy.in, support.rupeezy.in, RISE Portal). If the organizers release an official Appendix A, it replaces this file wholesale; the retrieval index rebuilds from the file, no code change needed.
+- **WhatsApp** is mocked. Each "send" persists a `whatsapp_log` row with `status='sent_mock'` and the rendered template body — visible in the lead drawer. Cloud API wiring is stubbed.
+- **No real telephony.** Judges explicitly accept browser voice / text simulation; we use Web Speech API for STT and Edge-TTS for output. The dialer in `app/agent/dialer.py` runs scripted scenarios through the real LLM + RAG + scoring pipeline so the demo is end-to-end real, not Wizard-of-Oz.
+- **All code was written during the hackathon window**, per Theme 7 rules. See git history.
 
 ## License
 

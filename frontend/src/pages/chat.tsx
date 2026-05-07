@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RotateCcw, Square, Send } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Square, Send, AlertCircle } from 'lucide-react';
 import HandoffPanel from '../components/HandoffPanel';
 import { Brand } from '../components/Brand';
 import {
@@ -10,9 +10,14 @@ import {
   endConversation,
   streamTurn,
 } from '../lib/api';
+import {
+  type DetectedObjection,
+  detectObjection,
+} from '../lib/objectionDetect';
 
 interface ChatMessage extends ConversationMessage {
   pending?: boolean;
+  objection?: DetectedObjection;
 }
 
 type Status =
@@ -108,9 +113,15 @@ export default function ChatPage() {
 
     setInput('');
     setStatus('streaming');
+    const objection = detectObjection(text) ?? undefined;
     setMessages((prev) => [
       ...prev,
-      { role: 'user', text, created_at: new Date().toISOString() },
+      {
+        role: 'user',
+        text,
+        created_at: new Date().toISOString(),
+        objection,
+      },
       {
         role: 'assistant',
         text: '',
@@ -315,7 +326,7 @@ export default function ChatPage() {
 function Bubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
           isUser
@@ -325,6 +336,24 @@ function Bubble({ message }: { message: ChatMessage }) {
       >
         {message.text || (message.pending ? <Pulse /> : '')}
       </div>
+      {message.objection && (
+        <ObjectionChip
+          label={message.objection.label}
+          id={message.objection.id}
+        />
+      )}
+    </div>
+  );
+}
+
+function ObjectionChip({ label, id }: { label: string; id: string }) {
+  return (
+    <div
+      className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.16em] bg-rupeezy-warm-faint text-rupeezy-warm border border-rupeezy-warm/30 animate-fade-in"
+      title={`Detected objection — Aria is composing a rebuttal. Will be reflected in the post-call handoff as ${id}.`}
+    >
+      <AlertCircle size={10} />
+      objection · {label}
     </div>
   );
 }

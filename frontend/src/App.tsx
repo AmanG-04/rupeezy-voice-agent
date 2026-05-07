@@ -1,7 +1,18 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, MessageSquare, Mic, LayoutDashboard, CircleCheck, CircleAlert } from 'lucide-react';
+import {
+  ArrowUpRight,
+  MessageSquare,
+  Mic,
+  LayoutDashboard,
+  CircleCheck,
+  CircleAlert,
+  PlayCircle,
+  Loader2,
+} from 'lucide-react';
 import { Brand } from './components/Brand';
+import PipelineDiagram from './components/PipelineDiagram';
+import { dialNextLead, seedDemoLeads } from './lib/api';
 
 interface Health {
   status: string;
@@ -12,12 +23,18 @@ interface Version {
   chat_model: string;
   reasoning_model: string;
   embedding_model: string;
+  tts_engine?: string;
 }
 
 export default function App() {
+  const navigate = useNavigate();
   const [health, setHealth] = useState<Health | null>(null);
   const [version, setVersion] = useState<Version | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [demoState, setDemoState] = useState<
+    'idle' | 'seeding' | 'dialing' | 'done' | 'error'
+  >('idle');
+  const [demoMessage, setDemoMessage] = useState<string>('');
 
   useEffect(() => {
     Promise.all([
@@ -30,6 +47,34 @@ export default function App() {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  async function runDemo() {
+    if (demoState === 'seeding' || demoState === 'dialing') return;
+    setDemoState('seeding');
+    setDemoMessage('Seeding 4 demo leads…');
+    try {
+      const r = await seedDemoLeads();
+      setDemoMessage(
+        `${r.enqueued} new lead${r.enqueued === 1 ? '' : 's'} queued. Opening dashboard…`,
+      );
+      // Hand off to the dashboard so the funnel is visible while we dial.
+      navigate('/dashboard');
+      setDemoState('dialing');
+      // Drive dial-next in a loop until idle. Same cadence as the modal.
+      // Spaced out so the dashboard's 5s auto-refresh actually shows the
+      // funnel populating one bucket at a time.
+      while (true) {
+        const res = await dialNextLead();
+        if (res.idle) break;
+        await new Promise((s) => setTimeout(s, 4000));
+      }
+      setDemoState('done');
+      setDemoMessage('All 4 demo leads processed.');
+    } catch (e) {
+      setDemoState('error');
+      setDemoMessage((e as Error).message);
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-rupeezy-ink relative overflow-hidden">
@@ -78,6 +123,46 @@ export default function App() {
               the product is weak, but because RM-driven calling can't keep up with timing,
               language, and queue capacity. This agent removes those bottlenecks.
             </p>
+
+            {/* Demo CTA — one click seeds 4 personas, navigates to dashboard,
+                drives dial-next until idle. The fastest path to "see it work". */}
+            <div className="mt-10 flex flex-wrap items-center gap-4">
+              <button
+                type="button"
+                onClick={() => void runDemo()}
+                disabled={demoState === 'seeding' || demoState === 'dialing'}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-md bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity shadow-lifted"
+              >
+                {demoState === 'seeding' || demoState === 'dialing' ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <PlayCircle size={15} />
+                )}
+                {demoState === 'idle' && 'Run live demo'}
+                {demoState === 'seeding' && 'Seeding leads…'}
+                {demoState === 'dialing' && 'Dialing 4 leads…'}
+                {demoState === 'done' && 'Run again'}
+                {demoState === 'error' && 'Retry'}
+              </button>
+              <Link
+                to="/voice"
+                className="inline-flex items-center gap-1.5 text-sm text-rupeezy-fg-muted hover:text-rupeezy-fg transition-colors"
+              >
+                Or talk to Aria yourself
+                <ArrowUpRight size={13} />
+              </Link>
+              {demoMessage && (
+                <span
+                  className={`text-xs font-mono ${
+                    demoState === 'error'
+                      ? 'text-rupeezy-hot'
+                      : 'text-rupeezy-fg-faint'
+                  }`}
+                >
+                  {demoMessage}
+                </span>
+              )}
+            </div>
           </div>
         </section>
 
@@ -108,6 +193,11 @@ export default function App() {
           </div>
         </section>
 
+        {/* Pipeline architecture — judges' 5-second tour of the data path */}
+        <section className="max-w-6xl w-full mx-auto px-8 pb-12">
+          <PipelineDiagram />
+        </section>
+
         {/* System status — production-style status panel */}
         <section className="max-w-6xl w-full mx-auto px-8 pb-24">
           <div className="glass-card rounded-xl p-6">
@@ -127,7 +217,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-rupeezy-border rounded-lg overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-rupeezy-border rounded-lg overflow-hidden">
               <StatRow
                 label="API"
                 value={health ? 'reachable' : '—'}
@@ -138,8 +228,18 @@ export default function App() {
                 value={version?.version ?? '—'}
               />
               <StatRow
+                label="TTS engine"
+                value={version?.tts_engine ?? 'edge-tts (neural)'}
+                truncate
+              />
+              <StatRow
                 label="Chat model"
                 value={version?.chat_model ?? '—'}
+                truncate
+              />
+              <StatRow
+                label="Reasoning model"
+                value={version?.reasoning_model ?? '—'}
                 truncate
               />
               <StatRow
@@ -155,7 +255,7 @@ export default function App() {
       <footer className="relative z-10 border-t border-rupeezy-border-subtle">
         <div className="max-w-6xl mx-auto px-8 py-5 flex items-center justify-between text-xs text-rupeezy-fg-faint">
           <span>Built during the PanIIT AI for Bharat hackathon, 2026.</span>
-          <span className="font-mono">localhost · dev</span>
+          <span className="font-mono">{deployTag()}</span>
         </div>
       </footer>
     </div>
@@ -200,6 +300,19 @@ function NavCard({
       </div>
     </Link>
   );
+}
+
+/**
+ * Footer tag — auto-detects environment.
+ *  - vite dev server                     → "localhost · dev"
+ *  - any prod build hosted anywhere     → "<hostname> · prod"
+ *  - local preview build (vite preview) → "<hostname> · prod"
+ */
+function deployTag(): string {
+  const host =
+    typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+  const isDev = import.meta.env.DEV;
+  return `${host} · ${isDev ? 'dev' : 'prod'}`;
 }
 
 function StatusPill({ state }: { state: 'live' | 'error' | 'connecting' }) {

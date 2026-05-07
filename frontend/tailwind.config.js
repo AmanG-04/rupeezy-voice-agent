@@ -69,6 +69,15 @@ export default {
         'glow-accent': 'radial-gradient(circle at top, rgba(124,124,255,0.10), transparent 60%)',
         'glow-subtle': 'radial-gradient(circle at top, rgba(255,255,255,0.04), transparent 60%)',
       },
+      keyframes: {
+        'fade-in': {
+          '0%': { opacity: '0', transform: 'translateY(2px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 240ms ease-out',
+      },
     },
   },
   plugins: [],

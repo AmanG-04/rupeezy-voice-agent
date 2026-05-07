@@ -285,6 +285,17 @@ export async function dialNextLead(): Promise<DialNextResponse> {
   return r.json();
 }
 
+export interface SeedDemoResponse {
+  enqueued: number;
+  personas: number;
+}
+
+export async function seedDemoLeads(): Promise<SeedDemoResponse> {
+  const r = await fetch(`${DASH}/leads/seed-demo`, { method: 'POST' });
+  if (!r.ok) throw new Error(`seedDemoLeads: ${r.status}`);
+  return r.json();
+}
+
 /**
  * Stream agent reply tokens for a single user turn.
  *

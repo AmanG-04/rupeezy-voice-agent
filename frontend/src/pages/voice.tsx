@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Mic, Square, Send } from 'lucide-react';
+import { ArrowLeft, Mic, Square, Send, AlertCircle } from 'lucide-react';
 import HandoffPanel from '../components/HandoffPanel';
 import { Brand } from '../components/Brand';
 import {
@@ -19,6 +19,10 @@ import {
   isSpeechSynthesisAvailable,
   cancelSpeech,
 } from '../lib/speech';
+import {
+  type DetectedObjection,
+  detectObjection,
+} from '../lib/objectionDetect';
 
 /** Speaker interface — both EdgeTtsSpeaker and BrowserTtsSpeaker satisfy it. */
 interface Speaker {
@@ -51,6 +55,7 @@ const LANG_OPTIONS: Array<{ code: string; label: string }> = [
 
 interface VoiceMessage extends ConversationMessage {
   pending?: boolean;
+  objection?: DetectedObjection;
 }
 
 const log = (...args: unknown[]) => console.log('[voice]', ...args);
@@ -122,9 +127,15 @@ export default function VoicePage() {
       return;
     }
     setStatus('thinking');
+    const objection = detectObjection(text) ?? undefined;
     setMessages((prev) => [
       ...prev,
-      { role: 'user', text, created_at: new Date().toISOString() },
+      {
+        role: 'user',
+        text,
+        created_at: new Date().toISOString(),
+        objection,
+      },
       {
         role: 'assistant',
         text: '',
@@ -620,7 +631,7 @@ export default function VoicePage() {
 function Bubble({ message }: { message: VoiceMessage }) {
   const isUser = message.role === 'user';
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
           isUser
@@ -630,6 +641,15 @@ function Bubble({ message }: { message: VoiceMessage }) {
       >
         {message.text || (message.pending ? <Pulse /> : '')}
       </div>
+      {message.objection && (
+        <div
+          className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.16em] bg-rupeezy-warm-faint text-rupeezy-warm border border-rupeezy-warm/30 animate-fade-in"
+          title={`Detected objection — Aria is composing a rebuttal. Will be reflected in the post-call handoff as ${message.objection.id}.`}
+        >
+          <AlertCircle size={10} />
+          objection · {message.objection.label}
+        </div>
+      )}
     </div>
   );
 }

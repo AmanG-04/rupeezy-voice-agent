@@ -272,6 +272,78 @@ async def leads_dial_next() -> dict:
     return result
 
 
+# ---------- demo seed (one-click judge demo) ----------
+
+
+# Four canned personas — one per scenario — chosen to produce HOT/WARM/COLD/DND
+# in a single processing pass so a judge sees every funnel path at once.
+_DEMO_PERSONAS: list[dict] = [
+    {
+        "name": "Aman Sharma",
+        "phone": "+919811001001",
+        "language_pref": "english",
+        "scenario": "hot_advisor",
+    },
+    {
+        "name": "Priya Iyer",
+        "phone": "+919811001002",
+        "language_pref": "hindi",
+        "scenario": "warm_mfd",
+    },
+    {
+        "name": "Rohan Kapoor",
+        "phone": "+919811001003",
+        "language_pref": "english",
+        "scenario": "cold_busy",
+    },
+    {
+        "name": "Vikram Singh",
+        "phone": "+919811001004",
+        "language_pref": "english",
+        "scenario": "dnd_hostile",
+    },
+]
+
+
+@router.post("/leads/seed-demo")
+async def leads_seed_demo() -> dict:
+    """Seed the four canonical demo personas. Idempotent — leads already
+    queued (matched by phone) are skipped.
+
+    Returns the count enqueued so the frontend can decide whether to drive
+    the dialer loop afterwards.
+    """
+    enqueued = 0
+    for persona in _DEMO_PERSONAS:
+        phone = _normalize_phone(persona["phone"])
+        if not phone:
+            continue
+        if find_lead_by_phone(phone) is not None:
+            continue
+        lead_id = uuid.uuid4().hex[:12]
+        try:
+            upsert_lead(
+                lead_id=lead_id,
+                name=persona["name"],
+                phone=phone,
+                language_pref=persona["language_pref"],
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("seed-demo: upsert_lead failed for %s", persona["name"])
+            continue
+        enqueue(
+            QueuedLead(
+                lead_id=lead_id,
+                name=persona["name"],
+                phone=phone,
+                language_pref=persona["language_pref"],
+                scenario=persona["scenario"],
+            )
+        )
+        enqueued += 1
+    return {"enqueued": enqueued, "personas": len(_DEMO_PERSONAS)}
+
+
 # ---------- Phase 8: WhatsApp logs ----------
 
 

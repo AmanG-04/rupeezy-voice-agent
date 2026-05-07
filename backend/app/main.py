@@ -80,6 +80,9 @@ async def version() -> dict[str, str]:
         "chat_model": settings.gemini_chat_model,
         "reasoning_model": settings.gemini_reasoning_model,
         "embedding_model": settings.gemini_embedding_model,
+        # Hard-coded — TTS is wired to Microsoft Edge's free public neural
+        # endpoint via the edge-tts package. See app.tts.edge_tts_route.
+        "tts_engine": "edge-tts (neural)",
     }
 
 
