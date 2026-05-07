@@ -15,8 +15,8 @@ services:
     runtime: python
     plan: free
     rootDir: backend
-    # Pin Python to match what we develop on locally.
-    pythonVersion: "3.11"
+    # Python version is pinned via the PYTHON_VERSION env var below
+    # (Render's render.yaml schema doesn't accept a `pythonVersion` key).
     buildCommand: pip install -e .
     # $PORT is injected by Render; binding to 0.0.0.0 is required.
     # No --reload in prod.
@@ -33,3 +33,6 @@ services:
         sync: false
       - key: BACKEND_LOG_LEVEL
         value: INFO
+      # Pin Python version. Render reads PYTHON_VERSION at build time.
+      - key: PYTHON_VERSION
+        value: 3.11.9
