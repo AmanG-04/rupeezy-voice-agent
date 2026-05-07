@@ -8,6 +8,7 @@ import {
   type HandoffRecord,
   createConversation,
   endConversation,
+  endConversationBeacon,
   streamTurn,
 } from '../lib/api';
 import {
@@ -39,10 +40,40 @@ export default function ChatPage() {
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Mirror state into refs so the unmount cleanup closure sees current
+  // values (state captured at mount time would be stale).
+  const convIdRef = useRef<string | null>(null);
+  const statusRef = useRef<Status>('idle');
+  const turnAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    convIdRef.current = convId;
+  }, [convId]);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     void start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hard cleanup on unmount — back arrow, voice link, dashboard link, etc.
+  // Aborts any in-flight stream and tells the backend to end the
+  // conversation so memory isn't leaked across navigations.
+  useEffect(() => {
+    return () => {
+      try {
+        turnAbortRef.current?.abort();
+      } catch {
+        /* ignore */
+      }
+      turnAbortRef.current = null;
+      const cid = convIdRef.current;
+      if (cid && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+        endConversationBeacon(cid, 'dropped');
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -131,6 +162,9 @@ export default function ChatPage() {
     ]);
 
     let accumulated = '';
+    turnAbortRef.current?.abort();
+    const controller = new AbortController();
+    turnAbortRef.current = controller;
     try {
       await streamTurn(convId, text, {
         onToken: (chunk) => {
@@ -163,7 +197,7 @@ export default function ChatPage() {
           setStatus('error');
           setErrorMsg(msg);
         },
-      });
+      }, controller.signal);
     } catch (e) {
       setStatus('error');
       setErrorMsg((e as Error).message);

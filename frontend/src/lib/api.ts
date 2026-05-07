@@ -150,6 +150,34 @@ export async function endConversation(
   return r.json();
 }
 
+/**
+ * Fire-and-forget end. Used from React useEffect cleanups when the user
+ * navigates away from /chat or /voice mid-call. We don't await — the
+ * component is unmounting and we don't need the handoff response. Uses
+ * `keepalive: true` so the browser will let the request finish even if
+ * the page is being torn down.
+ *
+ * Errors are swallowed: if the backend redeployed and the conv is gone,
+ * a 404 here is expected and harmless.
+ */
+export function endConversationBeacon(
+  convId: string,
+  endedBy: 'agent' | 'lead' | 'dropped' = 'dropped',
+): void {
+  try {
+    void fetch(`${BASE}/${convId}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ended_by: endedBy }),
+      keepalive: true,
+    }).catch(() => {
+      /* swallow — best-effort */
+    });
+  } catch {
+    /* swallow — best-effort */
+  }
+}
+
 export async function getHandoff(convId: string): Promise<HandoffRecord> {
   const r = await fetch(`${BASE}/${convId}/handoff`);
   if (!r.ok) throw new Error(`getHandoff: ${r.status}`);
@@ -298,6 +326,17 @@ export async function seedDemoLeads(): Promise<SeedDemoResponse> {
   return r.json();
 }
 
+export async function deleteLead(convId: string): Promise<void> {
+  const r = await fetch(`${DASH}/leads/${convId}`, { method: 'DELETE' });
+  if (!r.ok) throw new Error(`deleteLead: ${r.status}`);
+}
+
+export async function deleteBucket(bucket: Bucket): Promise<{ deleted: number }> {
+  const r = await fetch(`${DASH}/leads/bucket/${bucket}`, { method: 'DELETE' });
+  if (!r.ok) throw new Error(`deleteBucket: ${r.status}`);
+  return r.json();
+}
+
 /**
  * Stream agent reply tokens for a single user turn.
  *
@@ -381,10 +420,20 @@ export async function streamTurn(
   let buffer = '';
 
   while (true) {
-    const { done, value } = await reader.read();
+    let read: ReadableStreamReadResult<Uint8Array>;
+    try {
+      read = await reader.read();
+    } catch (e) {
+      // AbortController cancellation during stream — this is the page
+      // navigating away mid-reply. Not an error worth surfacing.
+      if ((e as Error).name === 'AbortError' || signal?.aborted) {
+        return;
+      }
+      handlers.onError?.(`stream: ${(e as Error).message}`);
+      return;
+    }
+    const { done, value } = read;
     if (done) break;
-    // Normalise CRLF -> LF as we decode so the rest of the parser only has
-    // to deal with one line ending. sse-starlette emits CRLF per the spec.
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
 
     // SSE messages are separated by a blank line.

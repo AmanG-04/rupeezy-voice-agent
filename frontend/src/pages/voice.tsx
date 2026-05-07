@@ -8,6 +8,7 @@ import {
   type HandoffRecord,
   createConversation,
   endConversation,
+  endConversationBeacon,
   streamTurn,
 } from '../lib/api';
 import { BrowserTtsSpeaker } from '../lib/browserTts';
@@ -76,6 +77,9 @@ export default function VoicePage() {
   const statusRef = useRef<Status>('idle');
   const langRef = useRef<string>('en-IN');
   const speakerRef = useRef<Speaker | null>(null);
+  // AbortController for in-flight streamTurn fetches. Aborted on unmount so
+  // a navigation mid-reply doesn't leak a Response stream.
+  const turnAbortRef = useRef<AbortController | null>(null);
   // Once we know edge-tts is reachable, cache the verdict so we don't probe
   // it on every turn.
   const edgeTtsOkRef = useRef<boolean | null>(null);
@@ -106,16 +110,43 @@ export default function VoicePage() {
     });
   }, [messages, partialText]);
 
+  // Hard cleanup on unmount — fired when the user clicks the back arrow,
+  // the /chat link, the dashboard link, or anything else that navigates
+  // away from /voice. Critical: the in-memory backend conversation must be
+  // ended (even if the user never clicked "End call"), the recognizer must
+  // stop holding the mic, the AudioContext must be torn down, and any
+  // in-flight streamTurn fetch must be aborted.
   useEffect(() => {
     return () => {
+      // 1. Kill the mic + STT.
       try {
         recognitionRef.current?.abort();
       } catch {
         /* ignore */
       }
+      recognitionRef.current = null;
+
+      // 2. Stop TTS playback + tear down AudioContext.
       speakerRef.current?.cancel();
       speakerRef.current = null;
       cancelSpeech();
+
+      // 3. Abort any in-flight LLM streaming fetch.
+      try {
+        turnAbortRef.current?.abort();
+      } catch {
+        /* ignore */
+      }
+      turnAbortRef.current = null;
+
+      // 4. Tell the backend to end the conversation. Beacon (keepalive)
+      // so the request survives the page tearing down. Don't await.
+      const cid = convIdRef.current;
+      if (cid && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+        endConversationBeacon(cid, 'dropped');
+      }
+
+      isReplyingRef.current = false;
     };
   }, []);
 
@@ -213,24 +244,36 @@ export default function VoicePage() {
 
     let accumulated = '';
 
+    // Fresh AbortController per turn so the unmount cleanup can kill an
+    // in-flight stream. Old controller (if any) was for a previous turn
+    // that already completed.
+    turnAbortRef.current?.abort();
+    const controller = new AbortController();
+    turnAbortRef.current = controller;
+
     try {
-      await streamTurn(cid, text, {
-        onToken: (chunk) => {
-          accumulated += chunk;
-          // Don't write tokens into the bubble — let the speaker drive the
-          // visible text via onSpoken so audio + text stay in sync.
-          speaker.feed(chunk);
+      await streamTurn(
+        cid,
+        text,
+        {
+          onToken: (chunk) => {
+            accumulated += chunk;
+            // Don't write tokens into the bubble — let the speaker drive the
+            // visible text via onSpoken so audio + text stay in sync.
+            speaker.feed(chunk);
+          },
+          onConvReplaced: (newConvId) => {
+            log('conv replaced (server restarted) — new id:', newConvId);
+            setConvId(newConvId);
+            convIdRef.current = newConvId;
+          },
+          onError: (msg) => {
+            log('streamTurn onError:', msg);
+            setErrorMsg(msg);
+          },
         },
-        onConvReplaced: (newConvId) => {
-          log('conv replaced (server restarted) — new id:', newConvId);
-          setConvId(newConvId);
-          convIdRef.current = newConvId;
-        },
-        onError: (msg) => {
-          log('streamTurn onError:', msg);
-          setErrorMsg(msg);
-        },
-      });
+        controller.signal,
+      );
       log('streamTurn done, accumulated chars:', accumulated.length);
     } catch (e) {
       log('streamTurn threw:', e);

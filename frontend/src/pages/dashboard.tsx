@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Upload, Search } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Upload, Search, Trash2 } from 'lucide-react';
 import FunnelHeader from '../components/FunnelHeader';
 import LeadsTable from '../components/LeadsTable';
 import LeadDrawer from '../components/LeadDrawer';
@@ -10,6 +10,8 @@ import {
   type Bucket,
   type Funnel,
   type LeadRow,
+  deleteBucket,
+  deleteLead,
   getFunnel,
   listLeads,
 } from '../lib/api';
@@ -58,6 +60,40 @@ export default function DashboardPage() {
     }, 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  const handleDelete = useCallback(
+    async (convId: string) => {
+      try {
+        await deleteLead(convId);
+        if (selectedConvId === convId) setSelectedConvId(null);
+        await refresh();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [refresh, selectedConvId],
+  );
+
+  const handleClearBucket = useCallback(async () => {
+    if (bucketFilter === 'all') return;
+    if (
+      !window.confirm(
+        `Clear ALL ${bucketFilter.toUpperCase()} leads? Removes their conversations, transcripts, handoffs, and WhatsApp logs. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const r = await deleteBucket(bucketFilter as Bucket);
+      setSelectedConvId(null);
+      await refresh();
+      // small visual confirmation via the existing error slot is tacky;
+      // the funnel + table will simply show the new (lower) counts.
+      void r;
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [bucketFilter, refresh]);
 
   const filteredLeads = search
     ? leads.filter((l) => {
@@ -159,6 +195,17 @@ export default function DashboardPage() {
           <div className="text-xs text-rupeezy-fg-faint font-mono tabular-nums">
             {filteredLeads.length} of {leads.length}
           </div>
+          {bucketFilter !== 'all' && leads.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleClearBucket()}
+              title={`Delete all ${bucketFilter.toUpperCase()} leads`}
+              className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-md border border-rupeezy-hot/40 text-rupeezy-hot hover:bg-rupeezy-hot-faint transition-colors"
+            >
+              <Trash2 size={11} />
+              Clear all {bucketFilter.toUpperCase()}
+            </button>
+          )}
         </div>
 
         {/* Zone 2: Leads table */}
@@ -166,6 +213,7 @@ export default function DashboardPage() {
           leads={filteredLeads}
           onSelect={setSelectedConvId}
           selectedConvId={selectedConvId}
+          onDelete={(cid) => void handleDelete(cid)}
           loading={loading && leads.length === 0}
         />
       </main>

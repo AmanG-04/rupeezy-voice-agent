@@ -26,6 +26,8 @@ from pydantic import BaseModel
 
 from app.agent.dialer import SCENARIOS, QueuedLead, dial_next, enqueue, get_queue
 from app.db.repo import (
+    delete_conversation,
+    delete_conversations_by_bucket,
     find_lead_by_phone,
     funnel_counts,
     get_conversation_row,
@@ -399,3 +401,29 @@ async def lead_detail(conv_id: str) -> LeadDetail:
             )
 
     return LeadDetail(handoff=handoff, transcript=transcript)
+
+
+# ---------- Deletes (RM dashboard cleanup) ----------
+
+
+@router.delete("/leads/{conv_id}")
+async def delete_lead_endpoint(conv_id: str) -> dict:
+    """Delete a single conversation by id. Cascades to messages, handoff,
+    and whatsapp_log. Returns the deleted count (0 or 1)."""
+    deleted = delete_conversation(conv_id)
+    if deleted == 0:
+        raise HTTPException(404, f"conversation {conv_id} not found")
+    log.info("deleted conversation %s", conv_id)
+    return {"deleted": deleted}
+
+
+@router.delete("/leads/bucket/{bucket}")
+async def delete_bucket_endpoint(bucket: str) -> dict:
+    """Delete every conversation whose handoff is in the given bucket
+    (hot / warm / cold). Returns the number of conversations removed."""
+    try:
+        deleted = delete_conversations_by_bucket(bucket)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    log.info("deleted %d conversations from bucket=%s", deleted, bucket)
+    return {"deleted": deleted, "bucket": bucket}

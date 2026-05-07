@@ -302,3 +302,40 @@ def funnel_counts() -> dict[str, int]:
         "warm": warm,
         "cold": cold,
     }
+
+
+# ---------- Deletes (RM dashboard cleanup) ----------
+
+
+def delete_conversation(conv_id: str) -> int:
+    """Delete a single conversation and everything cascaded from it
+    (messages, handoff_records, whatsapp_log). Returns 1 if a row was
+    deleted, 0 if not found."""
+    with session_scope() as s:
+        row = (
+            s.query(ConversationRow)
+            .filter(ConversationRow.id == conv_id)
+            .one_or_none()
+        )
+        if row is None:
+            return 0
+        s.delete(row)
+        return 1
+
+
+def delete_conversations_by_bucket(bucket: str) -> int:
+    """Delete every conversation whose handoff is in the given bucket.
+    Returns the number of conversations removed."""
+    if bucket not in {"hot", "warm", "cold"}:
+        raise ValueError(f"unknown bucket: {bucket}")
+    with session_scope() as s:
+        rows = (
+            s.query(ConversationRow)
+            .join(ConversationRow.handoff)
+            .filter(HandoffRow.bucket == bucket)
+            .all()
+        )
+        count = len(rows)
+        for r in rows:
+            s.delete(r)
+        return count

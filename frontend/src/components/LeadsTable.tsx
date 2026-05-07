@@ -1,3 +1,4 @@
+import { Trash2 } from 'lucide-react';
 import type { Bucket, LeadRow, NextActionType } from '../lib/api';
 
 const BUCKET_BADGE: Record<Bucket, { label: string; cls: string }> = {
@@ -28,11 +29,13 @@ export default function LeadsTable({
   onSelect,
   selectedConvId,
   loading,
+  onDelete,
 }: {
   leads: LeadRow[];
   onSelect: (convId: string) => void;
   selectedConvId: string | null;
   loading?: boolean;
+  onDelete?: (convId: string) => void;
 }) {
   if (loading) {
     return (
@@ -67,6 +70,7 @@ export default function LeadsTable({
             <Th align="right">Dur</Th>
             <Th>Next action</Th>
             <Th>When</Th>
+            {onDelete && <Th align="right">{''}</Th>}
           </tr>
         </thead>
         <tbody>
@@ -115,6 +119,28 @@ export default function LeadsTable({
                 <td className="px-5 py-4 align-top text-rupeezy-fg-faint text-xs whitespace-nowrap">
                   {formatRelative(lead.started_at)}
                 </td>
+                {onDelete && (
+                  <td className="px-3 py-4 align-top text-right">
+                    <button
+                      type="button"
+                      title="Delete this lead"
+                      aria-label="Delete this lead"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          window.confirm(
+                            `Delete this ${lead.bucket.toUpperCase()} lead? This removes the conversation, transcript, handoff, and any WhatsApp logs.`,
+                          )
+                        ) {
+                          onDelete(lead.conv_id);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-rupeezy-fg-faint hover:text-rupeezy-hot hover:bg-rupeezy-hot-faint"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
+                )}
               </tr>
             );
           })}
