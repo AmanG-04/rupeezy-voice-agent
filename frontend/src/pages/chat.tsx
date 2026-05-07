@@ -144,6 +144,9 @@ export default function ChatPage() {
             return next;
           });
         },
+        onConvReplaced: (newConvId) => {
+          setConvId(newConvId);
+        },
         onError: (msg) => {
           setMessages((prev) => {
             const next = [...prev];

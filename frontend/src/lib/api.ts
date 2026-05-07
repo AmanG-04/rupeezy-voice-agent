@@ -315,15 +315,62 @@ export async function streamTurn(
     onToken: (text: string) => void;
     onDone?: () => void;
     onError?: (message: string) => void;
+    /** Called if the conversation was lost on the backend (server restarted)
+     * and a new conv_id was minted to retry the turn. The frontend should
+     * update its stored convId to this new value. */
+    onConvReplaced?: (newConvId: string) => void;
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const r = await fetch(`${BASE}/${convId}/turn`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ text: userText }),
-    signal,
-  });
+  const fetchTurn = (cid: string) =>
+    fetch(`${BASE}/${cid}/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ text: userText }),
+      signal,
+    });
+
+  let r: Response;
+  try {
+    r = await fetchTurn(convId);
+  } catch (e) {
+    // Network-level failure (Render cold-start, DNS blip). Retry once.
+    await new Promise((s) => setTimeout(s, 1500));
+    try {
+      r = await fetchTurn(convId);
+    } catch (e2) {
+      handlers.onError?.(`network: ${(e2 as Error).message}`);
+      return;
+    }
+    void e;
+  }
+
+  // 5xx from Render Cloudflare often means the worker is mid-restart.
+  // Wait briefly and retry once.
+  if (r.status >= 502 && r.status <= 504) {
+    await new Promise((s) => setTimeout(s, 1500));
+    try {
+      r = await fetchTurn(convId);
+    } catch (e) {
+      handlers.onError?.(`network: ${(e as Error).message}`);
+      return;
+    }
+  }
+
+  // 404 means the backend lost the conversation (free-tier redeploy wiped
+  // in-memory state). Mint a new conv and retry the turn so the demo
+  // doesn't dead-end on a stale id.
+  if (r.status === 404) {
+    try {
+      const fresh = await createConversation();
+      handlers.onConvReplaced?.(fresh.conv_id);
+      r = await fetchTurn(fresh.conv_id);
+    } catch (e) {
+      handlers.onError?.(`conv lost; restart failed: ${(e as Error).message}`);
+      return;
+    }
+  }
+
   if (!r.ok || !r.body) {
     handlers.onError?.(`turn HTTP ${r.status}`);
     return;

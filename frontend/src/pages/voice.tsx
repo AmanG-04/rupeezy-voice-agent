@@ -221,6 +221,11 @@ export default function VoicePage() {
           // visible text via onSpoken so audio + text stay in sync.
           speaker.feed(chunk);
         },
+        onConvReplaced: (newConvId) => {
+          log('conv replaced (server restarted) — new id:', newConvId);
+          setConvId(newConvId);
+          convIdRef.current = newConvId;
+        },
         onError: (msg) => {
           log('streamTurn onError:', msg);
           setErrorMsg(msg);
