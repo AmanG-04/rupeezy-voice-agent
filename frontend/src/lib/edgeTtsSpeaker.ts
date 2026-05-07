@@ -190,11 +190,27 @@ export class EdgeTtsSpeaker {
     source.onended = () => {
       if (this.cancelled) return;
       this.currentSource = null;
-      // Lock in the full sentence (in case the reveal timer was preempted).
+      // Cancel any reveal timers that haven't fired yet — including the
+      // boundary one that lands at exactly `t = duration`. Without this,
+      // a stale `setTimeout` could fire AFTER we've already locked the
+      // sentence into finishedSentencesText, causing the last sentence to
+      // appear twice in the bubble.
+      this.revealTimers.forEach((t) => clearTimeout(t));
+      this.revealTimers = [];
+
+      // Lock in the full sentence so the next sentence's emits stack onto
+      // the correct prefix. Don't re-emit here — the final reveal timer
+      // already did, and any duplicate now would land in the visible
+      // bubble as a repeat.
       this.finishedSentencesText = this.finishedSentencesText
         ? `${this.finishedSentencesText} ${item.text}`.trim()
         : item.text;
+      // Belt-and-suspenders: if the last reveal timer was preempted by
+      // `onended` firing early (i.e. partial < full sentence), surface
+      // the full text now. We compare lengths to avoid the duplicate
+      // case (timer already emitted the full string).
       this.opts.onSpoken?.(this.finishedSentencesText);
+
       this.flushSentences();
       void this.playNext();
     };
