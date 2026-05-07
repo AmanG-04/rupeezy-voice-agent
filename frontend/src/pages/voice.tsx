@@ -11,6 +11,7 @@ import {
   streamTurn,
 } from '../lib/api';
 import { BrowserTtsSpeaker } from '../lib/browserTts';
+import { EdgeTtsSpeaker } from '../lib/edgeTtsSpeaker';
 import {
   type SpeechRecognitionLike,
   createRecognition,
@@ -18,6 +19,13 @@ import {
   isSpeechSynthesisAvailable,
   cancelSpeech,
 } from '../lib/speech';
+
+/** Speaker interface — both EdgeTtsSpeaker and BrowserTtsSpeaker satisfy it. */
+interface Speaker {
+  feed(chunk: string): void;
+  finish(): void;
+  cancel(): void;
+}
 
 type Status =
   | 'idle'
@@ -62,7 +70,10 @@ export default function VoicePage() {
   const convIdRef = useRef<string | null>(null);
   const statusRef = useRef<Status>('idle');
   const langRef = useRef<string>('en-IN');
-  const speakerRef = useRef<BrowserTtsSpeaker | null>(null);
+  const speakerRef = useRef<Speaker | null>(null);
+  // Once we know edge-tts is reachable, cache the verdict so we don't probe
+  // it on every turn.
+  const edgeTtsOkRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     convIdRef.current = convId;
@@ -126,18 +137,15 @@ export default function VoicePage() {
     // fresh sentence-streaming speaker for this turn.
     speakerRef.current?.cancel();
     let firstSentenceSpoken = false;
-    const speaker = new BrowserTtsSpeaker({
-      lang: langRef.current,
-      rate: 1.1,
-      pitch: 1.08,
+
+    const lang = langRef.current;
+    const callbacks = {
       onFirstSentence: () => {
         firstSentenceSpoken = true;
         isReplyingRef.current = true;
         setStatus('speaking');
       },
-      // The bubble fills sentence-by-sentence in lockstep with what the user
-      // is actually hearing — not what the model has streamed.
-      onSpoken: (cumulative) => {
+      onSpoken: (cumulative: string) => {
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
@@ -152,10 +160,44 @@ export default function VoicePage() {
         isReplyingRef.current = false;
         if (statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
           setStatus('listening');
+          try {
+            recognitionRef.current?.start();
+            log('recognition: kicked from onAllDone');
+          } catch {
+            /* already running */
+          }
         }
       },
-      onError: (m) => log('tts error:', m),
-    });
+      onError: (m: string) => log('tts error:', m),
+    };
+
+    // Prefer Edge-TTS (neural voices for any judge regardless of OS).
+    // Fall back to Web Speech API if the route isn't reachable.
+    let speaker: Speaker;
+    if (edgeTtsOkRef.current === false) {
+      const isEnglish = lang.startsWith('en-');
+      speaker = new BrowserTtsSpeaker({
+        lang,
+        rate: isEnglish ? 1.15 : 0.98,
+        pitch: 1.06,
+        ...callbacks,
+      });
+    } else {
+      // Edge-TTS rate: small bump for English, natural cadence for IN langs.
+      const isEnglish = lang.startsWith('en-');
+      speaker = new EdgeTtsSpeaker({
+        lang,
+        rate: isEnglish ? '+8%' : '+0%',
+        pitch: '+0Hz',
+        ...callbacks,
+        onError: (m: string) => {
+          // First failure flips the cache so subsequent turns skip the probe.
+          log('edge-tts error, will fall back to web speech:', m);
+          edgeTtsOkRef.current = false;
+          callbacks.onError(m);
+        },
+      });
+    }
     speakerRef.current = speaker;
 
     let accumulated = '';
@@ -268,15 +310,36 @@ export default function VoicePage() {
 
     r.onend = () => {
       log('recognition: onend, current status:', statusRef.current);
-      if (
+      // Restart whenever the call is still active. Includes 'thinking' and
+      // 'speaking' — the recognizer often ends mid-reply, but we want it
+      // back up the moment Aria finishes so the user's next utterance is
+      // captured immediately.
+      const stillActive =
         statusRef.current === 'listening' ||
-        statusRef.current === 'speaking'
-      ) {
+        statusRef.current === 'speaking' ||
+        statusRef.current === 'thinking';
+      if (stillActive) {
         try {
           r.start();
           log('recognition: auto-restarted');
         } catch (err) {
-          log('recognition: restart failed', err);
+          // Most common: 'start' called while engine still busy. Retry once
+          // after a short tick — by then the engine is idle.
+          log('recognition: restart failed, will retry', err);
+          setTimeout(() => {
+            if (
+              statusRef.current === 'listening' ||
+              statusRef.current === 'speaking' ||
+              statusRef.current === 'thinking'
+            ) {
+              try {
+                r.start();
+                log('recognition: retry-restarted');
+              } catch (err2) {
+                log('recognition: retry failed', err2);
+              }
+            }
+          }, 250);
         }
       }
     };
@@ -294,6 +357,12 @@ export default function VoicePage() {
     setErrorMsg(null);
     setMessages([]);
     setHandoff(null);
+    // Probe Edge-TTS once per call. If reachable we'll use it for all turns.
+    if (edgeTtsOkRef.current === null) {
+      const ok = await EdgeTtsSpeaker.isAvailable();
+      edgeTtsOkRef.current = ok;
+      log('edge-tts availability:', ok);
+    }
     // Some browsers (Safari) require a user-gesture before SpeechSynthesis is
     // allowed to speak. Speak an empty utterance here to "warm up" the engine.
     try {

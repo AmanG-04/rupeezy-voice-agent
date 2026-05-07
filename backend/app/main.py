@@ -19,6 +19,7 @@ from app import __version__
 from app.agent.routes import router as agent_router
 from app.config import get_settings
 from app.dashboard.routes import router as dashboard_router
+from app.tts.edge_tts_route import router as tts_router
 
 settings = get_settings()
 
@@ -84,5 +85,7 @@ async def version() -> dict[str, str]:
 
 app.include_router(agent_router)
 app.include_router(dashboard_router)
+app.include_router(tts_router)
+
 
 

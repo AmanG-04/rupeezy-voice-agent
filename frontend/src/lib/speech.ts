@@ -123,33 +123,52 @@ export async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
  * "Neural") sound dramatically more human. We prefer female voices because
  * Aria is the persona name.
  */
+/**
+ * Score a voice for "warmth + naturalness". Higher is better.
+ *
+ * The Windows SAPI default ("Microsoft David / Zira / Heera") is robotic and
+ * flat. The voices that sound near-indistinguishable from a real human are
+ * Microsoft Edge's online neural voices — exposed in Chrome/Edge as
+ * "Microsoft Aria Online (Natural)", "Microsoft AvaMultilingual Online", etc.
+ * We aggressively prefer those.
+ */
 function scoreVoice(v: SpeechSynthesisVoice, lang: string): number {
   const name = v.name.toLowerCase();
   let score = 0;
 
-  // Lang match
   if (v.lang === lang) score += 100;
   else if (v.lang.startsWith(`${lang.split('-')[0]}-`)) score += 50;
-  else return -1; // wrong language family — skip entirely
+  else return -Infinity;
 
-  // Naturalness signals (Microsoft Edge online voices contain these tokens)
-  if (name.includes('natural')) score += 80;
-  if (name.includes('neural')) score += 80;
-  if (name.includes('online')) score += 40;
-  if (name.includes('google')) score += 30;
-  if (name.includes('premium')) score += 30;
+  // The big naturalness signals — these are the neural voices.
+  if (name.includes('natural')) score += 200;
+  if (name.includes('neural')) score += 200;
+  if (name.includes('multilingual')) score += 150;
+  if (name.includes('online')) score += 120;
 
-  // Warmth — prefer female voices for Aria
+  // Microsoft "Aria" is THE flagship neural voice on Windows — exact name
+  // match for our persona too. Strongest boost.
+  if (name.includes('aria')) score += 250;
+  // Other top-tier MS Online neural female voices
+  if (name.includes('jenny')) score += 180;
+  if (name.includes('emma')) score += 180;
+  if (name.includes('ava')) score += 180;
+  if (name.includes('libby')) score += 150;
+  // Indian-English / Hindi neural voices (MS calls them Neerja, Swara, Prabhat)
+  if (name.includes('neerja')) score += 220;
+  if (name.includes('swara')) score += 220;
+  if (name.includes('madhur')) score += 180;
+
+  // Google neural voices on Chrome (less natural than MS but still good)
+  if (name.includes('google')) score += 80;
+
+  // Generic female-name hints, weakest tier
   const femaleHints = [
-    'aria',
-    'jenny',
     'sara',
     'zira',
     'samantha',
     'tessa',
     'priya',
-    'neerja',
-    'swara',
     'heera',
     'kalpana',
     'shruti',
@@ -158,8 +177,12 @@ function scoreVoice(v: SpeechSynthesisVoice, lang: string): number {
   ];
   if (femaleHints.some((h) => name.includes(h))) score += 20;
 
-  // Penalty for the truly robotic stock SAPI voices
-  if (name.includes('david') || name.includes('mark')) score -= 10;
+  // Hard penalty for the robotic stock SAPI voices.
+  if (name.includes('david')) score -= 100;
+  if (name.includes('mark')) score -= 100;
+  // Local non-online MS voices (e.g. "Microsoft Heera Desktop") are the old
+  // SAPI engine — flatter than the online versions. Mild penalty.
+  if (name.includes('desktop')) score -= 30;
 
   return score;
 }

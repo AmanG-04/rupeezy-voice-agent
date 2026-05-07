@@ -211,9 +211,10 @@ def _ensure_genai() -> None:
 
 GENERATION_CONFIG = {
     "temperature": 0.7,          # warm but obedient to language-matching rule
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 280,    # ~2-3 spoken sentences — keeps replies snappy
+    "top_p": 0.9,                # tighter than 0.95 for snappier decoding
+    "top_k": 20,                 # halved from 40 — fewer candidates per step,
+                                 # measurably faster TTFT on flash-lite
+    "max_output_tokens": 220,    # ~2 spoken sentences — keeps replies snappy
 }
 
 # Don't over-restrict — sales/objection-handling content is harmless. We only
