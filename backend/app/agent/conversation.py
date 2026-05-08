@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -388,6 +389,7 @@ async def stream_user_turn(
     otherwise be misclassified as English.
     """
     _ensure_genai()
+    turn_started = time.perf_counter()
     store = get_store()
     retriever = get_retriever()
 
@@ -398,6 +400,13 @@ async def stream_user_turn(
         raise ValueError(f"conversation {conv_id} already ended")
 
     conv.add("user", user_text)
+    log.info(
+        "latency | conv=%s stage=turn_start chars=%d k=%d lang_hint=%r",
+        conv_id,
+        len(user_text),
+        k,
+        lang_hint,
+    )
 
     # Decide whether to spend an embedding API call on this turn. The system
     # prompt's always-on chunks (§1, §2, §3, §3.1, §5, §6, §8) already cover
@@ -407,6 +416,7 @@ async def stream_user_turn(
     # ask. Skipping retrieval on short / low-content turns saves quota +
     # ~200-500ms latency without hurting reply quality.
     hits: list = []
+    retrieve_started = time.perf_counter()
     if _should_retrieve(user_text, conv):
         try:
             hits = retriever.retrieve(user_text, k=k)
@@ -415,11 +425,18 @@ async def stream_user_turn(
             hits = []
     else:
         log.info("skipping retrieval (short/low-content turn): %r", user_text[:60])
+    log.info(
+        "latency | conv=%s stage=retrieval hits=%d elapsed_ms=%.1f",
+        conv_id,
+        len(hits),
+        (time.perf_counter() - retrieve_started) * 1000,
+    )
 
     # Phase 10: if this conversation is bound to a known lead, pull cross-call
     # memory for the prompt. Cheap (one indexed SQL query) and best-effort —
     # any error here falls back to "no prior context" without breaking the turn.
     ctx = None
+    lead_ctx_started = time.perf_counter()
     if conv.lead_id:
         try:
             from app.agent.lead_memory import get_lead_context
@@ -427,9 +444,22 @@ async def stream_user_turn(
             ctx = get_lead_context(conv.lead_id)
         except Exception as e:  # noqa: BLE001
             log.warning("lead_memory lookup failed for %s: %s", conv.lead_id, e)
+    log.info(
+        "latency | conv=%s stage=lead_context found=%s elapsed_ms=%.1f",
+        conv_id,
+        bool(ctx),
+        (time.perf_counter() - lead_ctx_started) * 1000,
+    )
 
+    prompt_started = time.perf_counter()
     parts = build_prompt_parts(retriever, retrieved_hits=hits, lead_context=ctx)
     system_instruction = parts.assemble()
+    log.info(
+        "latency | conv=%s stage=prompt_build prompt_chars=%d elapsed_ms=%.1f",
+        conv_id,
+        len(system_instruction),
+        (time.perf_counter() - prompt_started) * 1000,
+    )
 
     # Per-turn language resolution.
     # Order of precedence:
@@ -509,6 +539,8 @@ async def stream_user_turn(
             safety_settings=SAFETY_SETTINGS,
         )
         chat = model.start_chat(history=history)
+        model_started = time.perf_counter()
+        first_chunk_ms: float | None = None
 
         try:
             stream = chat.send_message(user_text, stream=True)
@@ -516,6 +548,14 @@ async def stream_user_turn(
                 piece = getattr(chunk, "text", "") or ""
                 if not piece:
                     continue
+                if first_chunk_ms is None:
+                    first_chunk_ms = (time.perf_counter() - model_started) * 1000
+                    log.info(
+                        "latency | conv=%s stage=first_token model=%s elapsed_ms=%.1f",
+                        conv_id,
+                        model_name,
+                        first_chunk_ms,
+                    )
                 chunk_count += 1
                 if not annotation_stripped:
                     piece = _LEADING_ANNOTATION.sub("", piece)
@@ -525,6 +565,13 @@ async def stream_user_turn(
                 response_text_parts.append(piece)
                 used_model = model_name
                 yield piece
+            log.info(
+                "latency | conv=%s stage=llm_stream model=%s chunks=%d elapsed_ms=%.1f",
+                conv_id,
+                model_name,
+                chunk_count,
+                (time.perf_counter() - model_started) * 1000,
+            )
         except Exception as e:  # noqa: BLE001
             emsg = str(e)
             is_quota = "429" in emsg or "quota" in emsg.lower() or "rate" in emsg.lower()
@@ -561,8 +608,9 @@ async def stream_user_turn(
 
     full_text = "".join(response_text_parts).strip()
     log.info(
-        "turn done | conv=%s model=%s chunks=%d reply_chars=%d rate_limited=%s",
+        "turn done | conv=%s model=%s chunks=%d reply_chars=%d rate_limited=%s total_elapsed_ms=%.1f",
         conv_id, used_model or "none", chunk_count, len(full_text), is_rate_limit,
+        (time.perf_counter() - turn_started) * 1000,
     )
     if full_text:
         conv.add("assistant", full_text)
@@ -643,10 +691,21 @@ async def stream_user_turn_with_audio(
 
     sentence_buf = ""
     full_text_parts: list[str] = []
+    voice_turn_started = time.perf_counter()
 
     async def _tts(sentence: str) -> bytes:
+        tts_started = time.perf_counter()
         try:
-            return await synthesize(sentence, voice=voice, style_prompt=_TTS_STYLE_PROMPT)
+            wav = await synthesize(sentence, voice=voice, style_prompt=_TTS_STYLE_PROMPT)
+            log.info(
+                "latency | conv=%s stage=voice_sentence_tts voice=%s sentence_chars=%d wav_bytes=%d elapsed_ms=%.1f",
+                conv_id,
+                voice,
+                len(sentence),
+                len(wav),
+                (time.perf_counter() - tts_started) * 1000,
+            )
+            return wav
         except Exception as e:  # noqa: BLE001
             log.warning("TTS failed on sentence (%d chars): %s", len(sentence), e)
             return b""
@@ -677,6 +736,7 @@ async def stream_user_turn_with_audio(
             yield ("audio", wav)
 
     log.info(
-        "voice turn done | conv=%s chars=%d",
+        "voice turn done | conv=%s chars=%d total_elapsed_ms=%.1f",
         conv_id, sum(len(p) for p in full_text_parts),
+        (time.perf_counter() - voice_turn_started) * 1000,
     )

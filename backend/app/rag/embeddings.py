@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from pathlib import Path
 
 import google.generativeai as genai
@@ -108,6 +109,7 @@ def embed_texts(
     out: list[list[float]] = []
     cache_hits = 0
     api_calls = 0
+    started = time.perf_counter()
     for text in texts:
         key = _cache_key(model_path, text, task_type)
         cached = _read_cache(key)
@@ -121,10 +123,11 @@ def embed_texts(
         api_calls += 1
 
     log.info(
-        "embed_texts: %d total, %d cache hits, %d API calls",
+        "latency | stage=embed_texts total=%d cache_hits=%d api_calls=%d elapsed_ms=%.1f",
         len(texts),
         cache_hits,
         api_calls,
+        (time.perf_counter() - started) * 1000,
     )
 
     arr = np.asarray(out, dtype=np.float32)
@@ -136,4 +139,11 @@ def embed_texts(
 
 def embed_query(text: str, *, model: str | None = None) -> np.ndarray:
     """Embed a single query string. Returns shape (768,)."""
-    return embed_texts([text], task_type="RETRIEVAL_QUERY", model=model)[0]
+    started = time.perf_counter()
+    vec = embed_texts([text], task_type="RETRIEVAL_QUERY", model=model)[0]
+    log.info(
+        "latency | stage=embed_query chars=%d elapsed_ms=%.1f",
+        len(text),
+        (time.perf_counter() - started) * 1000,
+    )
+    return vec

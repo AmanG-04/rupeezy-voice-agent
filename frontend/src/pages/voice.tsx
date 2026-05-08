@@ -150,15 +150,10 @@ export default function VoicePage() {
       }
     };
     const onPageHide = () => fireEnd();
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') fireEnd();
-    };
     window.addEventListener('pagehide', onPageHide);
-    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       window.removeEventListener('pagehide', onPageHide);
-      document.removeEventListener('visibilitychange', onVisibility);
 
       // 0. Tell pending setTimeout callbacks (auto-restart, retry-restart,
       // any onend handler closures) to bail. This is what stops the mic
@@ -793,7 +788,7 @@ function Bubble({ message }: { message: VoiceMessage }) {
             : 'bg-rupeezy-card text-rupeezy-fg rounded-bl-sm border border-rupeezy-border'
         }`}
       >
-        {message.text || (message.pending ? <Pulse /> : '')}
+        {message.text || (message.pending ? <LoadingBubble copy="Aria is thinking" /> : '')}
       </div>
       {message.objection && (
         <div
@@ -808,12 +803,15 @@ function Bubble({ message }: { message: VoiceMessage }) {
   );
 }
 
-function Pulse() {
+function LoadingBubble({ copy }: { copy: string }) {
   return (
-    <span className="inline-flex gap-1 items-center">
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
+    <span className="inline-flex items-center gap-2 text-rupeezy-fg-muted min-w-36">
+      <span className="inline-flex gap-1 items-center">
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
+      </span>
+      <span className="text-xs tracking-[0.02em]">{copy}...</span>
     </span>
   );
 }

@@ -75,15 +75,10 @@ export default function ChatPage() {
       }
     };
     const onPageHide = () => fireEnd();
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') fireEnd();
-    };
     window.addEventListener('pagehide', onPageHide);
-    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       window.removeEventListener('pagehide', onPageHide);
-      document.removeEventListener('visibilitychange', onVisibility);
       try {
         turnAbortRef.current?.abort();
       } catch {
@@ -389,7 +384,7 @@ function Bubble({ message }: { message: ChatMessage }) {
             : 'bg-rupeezy-card text-rupeezy-fg rounded-bl-sm border border-rupeezy-border'
         }`}
       >
-        {message.text || (message.pending ? <Pulse /> : '')}
+        {message.text || (message.pending ? <LoadingBubble copy="Aria is thinking" /> : '')}
       </div>
       {message.objection && (
         <ObjectionChip
@@ -413,12 +408,15 @@ function ObjectionChip({ label, id }: { label: string; id: string }) {
   );
 }
 
-function Pulse() {
+function LoadingBubble({ copy }: { copy: string }) {
   return (
-    <span className="inline-flex gap-1 items-center">
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
+    <span className="inline-flex items-center gap-2 text-rupeezy-fg-muted min-w-36">
+      <span className="inline-flex gap-1 items-center">
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse" />
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:200ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-rupeezy-fg-faint animate-pulse [animation-delay:400ms]" />
+      </span>
+      <span className="text-xs tracking-[0.02em]">{copy}...</span>
     </span>
   );
 }

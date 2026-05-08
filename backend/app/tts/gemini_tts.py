@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import struct
+import time
 from functools import lru_cache
 
 from google import genai
@@ -86,6 +87,7 @@ async def synthesize(
 
     settings = get_settings()
     model_name = "gemini-2.5-flash-preview-tts"
+    started = time.perf_counter()
 
     try:
         resp = await _client().aio.models.generate_content(
@@ -117,9 +119,10 @@ async def synthesize(
     out.write(_wav_header(len(pcm)))
     out.write(pcm)
     wav = out.getvalue()
-    log.debug(
-        "TTS ok | model=%s voice=%s text_chars=%d wav_bytes=%d",
+    log.info(
+        "latency | stage=gemini_tts model=%s voice=%s text_chars=%d wav_bytes=%d elapsed_ms=%.1f",
         model_name, voice, len(text), len(wav),
+        (time.perf_counter() - started) * 1000,
     )
     _ = settings  # kept loaded for side effects
     return wav

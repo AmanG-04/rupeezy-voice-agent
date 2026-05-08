@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import AsyncIterator
 
 import edge_tts
@@ -88,6 +89,7 @@ _tts_semaphore = asyncio.Semaphore(4)
 async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
     """Synthesize a sentence and stream the MP3 bytes back as audio/mpeg."""
     voice = _voice_for(req.lang)
+    started = time.perf_counter()
     log.info("tts: %d chars, lang=%s -> voice=%s", len(req.text), req.lang, voice)
 
     try:
@@ -110,6 +112,16 @@ async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
         log.exception("edge-tts synth failed")
         raise HTTPException(status_code=502, detail=f"tts upstream error: {e}") from e
 
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    log.info(
+        "latency | stage=edge_tts lang=%s voice=%s chars=%d audio_bytes=%d elapsed_ms=%.1f",
+        req.lang,
+        voice,
+        len(req.text),
+        len(buffer),
+        elapsed_ms,
+    )
+
     async def _emit() -> AsyncIterator[bytes]:
         # Yield in 4KB frames so the browser can start playback immediately.
         view = memoryview(bytes(buffer))
@@ -124,6 +136,7 @@ async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
         headers={
             "Cache-Control": "no-store",
             "X-TTS-Voice": voice,
+            "X-TTS-Elapsed-Ms": f"{elapsed_ms:.1f}",
         },
     )
 

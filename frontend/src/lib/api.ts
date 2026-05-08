@@ -481,7 +481,7 @@ export async function streamTurn(
   // 404 means the backend lost the conversation (free-tier redeploy wiped
   // in-memory state). Mint a new conv and retry the turn so the demo
   // doesn't dead-end on a stale id.
-  if (r.status === 404) {
+  if (r.status === 404 || r.status === 409) {
     try {
       const fresh = await createConversation();
       handlers.onConvReplaced?.(fresh.conv_id);

@@ -7,6 +7,8 @@ Retriever's public surface stays the same.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from app.rag.embeddings import embed_query
 from app.rag.store import load_all
 
 _DEFAULT_DB = Path(__file__).resolve().parents[2] / "data" / "rupeezy.db"
+log = logging.getLogger("rupeezy.rag.retriever")
 
 
 @dataclass(slots=True)
@@ -52,6 +55,7 @@ class Retriever:
         return len(self._chunks)
 
     def retrieve(self, query: str, k: int = 4) -> list[Hit]:
+        started = time.perf_counter()
         self._ensure_loaded()
         if not self._chunks:
             return []
@@ -60,4 +64,12 @@ class Retriever:
         # Embeddings are already L2-normalised in embed_texts, so cosine = dot.
         scores = self._matrix @ q
         top = np.argsort(-scores)[:k]
-        return [Hit(chunk=self._chunks[i], score=float(scores[i])) for i in top]
+        hits = [Hit(chunk=self._chunks[i], score=float(scores[i])) for i in top]
+        log.info(
+            "latency | stage=retrieve query_chars=%d k=%d hits=%d elapsed_ms=%.1f",
+            len(query),
+            k,
+            len(hits),
+            (time.perf_counter() - started) * 1000,
+        )
+        return hits
