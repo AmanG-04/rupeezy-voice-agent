@@ -94,6 +94,13 @@ export default function App() {
               the product is weak, but because RM-driven calling can't keep up with timing,
               language, and queue capacity. This agent removes those bottlenecks.
             </p>
+            <div className="mt-6 inline-flex items-start gap-2.5 rounded-md border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100 max-w-2xl">
+              <CircleAlert size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Backend is hosted on Render and may take up to 60 seconds to wake up
+                after idle.
+              </span>
+            </div>
 
             {/* Primary CTA — opens the same upload-leads modal the dashboard
                 uses. Judges drop a CSV (or download the rotating template),
