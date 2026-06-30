@@ -16,6 +16,7 @@
  */
 
 import { api } from './apiBase';
+import { loadVoices, pickVoice } from './speech';
 
 const SENTENCE_BOUNDARY = /([.!?…।]\s+|[.!?…।]$)/;
 // One-sentence audio buffer in chars. Below this we just speak the buffer
@@ -187,28 +188,26 @@ export class EdgeTtsSpeaker {
 
   /**
    * Sentence-level browser Web Speech fallback. Used when Edge-TTS fails
-   * for a sentence — but ONLY for English. For Hindi / Tamil / Telugu /
-   * Marathi / Gujarati / Bengali, browser Web Speech on a vanilla install
-   * either has no native voice or speaks Devanagari/Tamil/etc. text in a
-   * default English voice — producing exactly the "rupeezy ai 100%"
-   * mangling we just hit (it strips non-Latin chars and reads only the
-   * ASCII tokens). Better to show the text without speaking than to butcher
-   * a regional language out loud.
-   *
-   * Returns a Promise that resolves when the utterance finishes (or
-   * immediately if we skip).
+   * for a sentence. We prefer a same-language installed voice when one
+   * exists, but we no longer go silent for regional languages — audible
+   * fallback is better than a dropped reply during a demo.
    */
   private async speakWithWebSpeechFallback(sentence: string): Promise<void> {
-    // Skip the fallback entirely for non-English. Caller will reveal text
-    // and move on; the next sentence retries Edge-TTS fresh.
-    if (!this.opts.lang.startsWith('en-')) {
-      return;
-    }
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    let voice: SpeechSynthesisVoice | null = null;
+    try {
+      const voices = await loadVoices();
+      voice = pickVoice(voices, this.opts.lang);
+    } catch {
+      voice = null;
+    }
+
     return new Promise<void>((resolve) => {
       try {
         const u = new SpeechSynthesisUtterance(sentence);
         u.lang = this.opts.lang;
+        if (voice) u.voice = voice;
         u.rate = 1.05;
         u.pitch = 1.05;
         u.onend = () => resolve();
