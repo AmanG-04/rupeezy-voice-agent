@@ -170,6 +170,19 @@ export async function createConversation(
   return r.json();
 }
 
+export async function startConversationOpener(
+  convId: string,
+  opts?: { lang?: string },
+): Promise<ConversationMessage> {
+  const r = await fetch(`${BASE}/${convId}/opener`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...(opts?.lang ? { lang: opts.lang } : {}) }),
+  });
+  if (!r.ok) throw new Error(`startConversationOpener: ${r.status}`);
+  return r.json();
+}
+
 export async function getConversation(convId: string): Promise<Conversation> {
   const r = await fetchWithRetry(`${BASE}/${convId}`);
   if (!r.ok) throw new Error(`getConversation: ${r.status}`);

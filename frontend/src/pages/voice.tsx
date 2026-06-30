@@ -9,6 +9,7 @@ import {
   createConversation,
   endConversation,
   endConversationBeacon,
+  startConversationOpener,
   streamTurn,
 } from '../lib/api';
 import { EdgeTtsSpeaker } from '../lib/edgeTtsSpeaker';
@@ -23,6 +24,7 @@ import {
   type DetectedObjection,
   detectObjection,
 } from '../lib/objectionDetect';
+import { shouldAutoEndAfterAssistantReply } from '../lib/callEnding';
 
 /** Minimal speaker interface — EdgeTtsSpeaker is the only impl now. */
 interface Speaker {
@@ -89,6 +91,7 @@ export default function VoicePage() {
   // from inside an empty-deps useCallback without going stale. Populated
   // by an effect once startRecognition is defined further down the file.
   const startRecognitionRef = useRef<(() => void) | null>(null);
+  const autoEndAfterSpeechRef = useRef(false);
   // Set to false on unmount so any pending setTimeout callbacks (auto-
   // restart, retry-restart) bail out instead of resurrecting recognition
   // after the user clicked back. Without this, Chrome's mic indicator
@@ -194,6 +197,34 @@ export default function VoicePage() {
     };
   }, []);
 
+  const finishCall = useCallback(async (endedBy: 'agent' | 'lead' = 'lead') => {
+    const cid = convIdRef.current;
+    if (!cid) return;
+    log('ending call:', cid, 'ended_by:', endedBy);
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+    speakerRef.current?.cancel();
+    speakerRef.current = null;
+    cancelSpeech();
+    isReplyingRef.current = false;
+    autoEndAfterSpeechRef.current = false;
+    setStatus('scoring');
+    statusRef.current = 'scoring';
+    try {
+      const r = await endConversation(cid, endedBy);
+      setStatus('ended');
+      statusRef.current = 'ended';
+      if (r.handoff) setHandoff(r.handoff);
+    } catch (e) {
+      setStatus('error');
+      statusRef.current = 'error';
+      setErrorMsg((e as Error).message);
+    }
+  }, []);
+
   const dispatchUtterance = useCallback(async (text: string) => {
     const cid = convIdRef.current;
     log('dispatchUtterance:', { text, conv_id: cid });
@@ -259,6 +290,11 @@ export default function VoicePage() {
       onAllDone: () => {
         log('TTS done, returning to listening');
         isReplyingRef.current = false;
+        if (autoEndAfterSpeechRef.current) {
+          log('terminal close detected; ending after speech');
+          void finishCall('agent');
+          return;
+        }
         // If the user clicked back mid-reply, we don't want to resurrect
         // the recognizer here — the unmount cleanup already aborted it
         // and any new .start() would re-grab the mic.
@@ -358,6 +394,9 @@ export default function VoicePage() {
       log('streamTurn threw:', e);
       setErrorMsg((e as Error).message);
     } finally {
+      autoEndAfterSpeechRef.current =
+        statusRef.current !== 'error' &&
+        shouldAutoEndAfterAssistantReply(accumulated);
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
@@ -369,19 +408,16 @@ export default function VoicePage() {
       // Tell the speaker the stream is over — it will flush trailing text and
       // call onAllDone once the queue drains.
       speaker.finish();
-      if (!firstSentenceSpoken && statusRef.current !== 'ended' && statusRef.current !== 'scoring') {
+      if (
+        !firstSentenceSpoken &&
+        !autoEndAfterSpeechRef.current &&
+        statusRef.current !== 'ended' &&
+        statusRef.current !== 'scoring'
+      ) {
         setStatus('listening');
       }
     }
-  }, []);
-
-  const stopRecognition = useCallback(() => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  }, [finishCall]);
 
   const startRecognition = useCallback(() => {
     const r = createRecognition(langRef.current);
@@ -536,9 +572,33 @@ export default function VoicePage() {
       log('conversation created:', r.conv_id);
       setConvId(r.conv_id);
       convIdRef.current = r.conv_id;
-      setStatus('listening');
-      statusRef.current = 'listening';
-      startRecognition();
+      setStatus('speaking');
+      statusRef.current = 'speaking';
+      const opener = await startConversationOpener(r.conv_id, { lang: langRef.current });
+      setMessages([{ ...opener }]);
+
+      const speaker = new EdgeTtsSpeaker({
+        lang: langRef.current,
+        rate: langRef.current.startsWith('en-') ? '+8%' : '+0%',
+        pitch: '+0Hz',
+        onFirstSentence: () => {
+          setStatus('speaking');
+          statusRef.current = 'speaking';
+        },
+        onSpoken: (cumulative) => {
+          setMessages([{ ...opener, text: cumulative }]);
+        },
+        onAllDone: () => {
+          if (!mountedRef.current || statusRef.current === 'ended') return;
+          setStatus('listening');
+          statusRef.current = 'listening';
+          startRecognition();
+        },
+        onError: (m) => log('opener tts error:', m),
+      });
+      speakerRef.current = speaker;
+      speaker.feed(opener.text);
+      speaker.finish();
     } catch (e) {
       log('startCall error:', e);
       setStatus('error');
@@ -547,24 +607,7 @@ export default function VoicePage() {
   }
 
   async function endCall() {
-    if (!convId) return;
-    log('ending call:', convId);
-    stopRecognition();
-    speakerRef.current?.cancel();
-    speakerRef.current = null;
-    cancelSpeech();
-    isReplyingRef.current = false;
-    setStatus('scoring');
-    statusRef.current = 'scoring';
-    try {
-      const r = await endConversation(convId, 'lead');
-      setStatus('ended');
-      statusRef.current = 'ended';
-      if (r.handoff) setHandoff(r.handoff);
-    } catch (e) {
-      setStatus('error');
-      setErrorMsg((e as Error).message);
-    }
+    await finishCall('lead');
   }
 
   const [manualText, setManualText] = useState('');

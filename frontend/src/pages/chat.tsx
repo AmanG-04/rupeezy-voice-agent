@@ -9,12 +9,14 @@ import {
   createConversation,
   endConversation,
   endConversationBeacon,
+  startConversationOpener,
   streamTurn,
 } from '../lib/api';
 import {
   type DetectedObjection,
   detectObjection,
 } from '../lib/objectionDetect';
+import { shouldAutoEndAfterAssistantReply } from '../lib/callEnding';
 
 interface ChatMessage extends ConversationMessage {
   pending?: boolean;
@@ -117,6 +119,8 @@ export default function ChatPage() {
     try {
       const r = await createConversation();
       setConvId(r.conv_id);
+      const opener = await startConversationOpener(r.conv_id);
+      setMessages([{ ...opener }]);
       setStatus('live');
       inputRef.current?.focus();
     } catch (e) {
@@ -136,12 +140,13 @@ export default function ChatPage() {
     await start();
   }
 
-  async function endCall() {
-    if (!convId) return;
+  async function endCall(endedBy: 'agent' | 'lead' = 'lead') {
+    const cid = convIdRef.current ?? convId;
+    if (!cid) return;
     setStatus('scoring');
     setErrorMsg(null);
     try {
-      const r = await endConversation(convId, 'lead');
+      const r = await endConversation(cid, endedBy);
       setStatus('ended');
       if (r.handoff) setHandoff(r.handoff);
       if (r.handoff_error) setHandoffError(r.handoff_error);
@@ -223,7 +228,14 @@ export default function ChatPage() {
         }
         return next;
       });
-      if (status !== 'ended') setStatus('live');
+      if (
+        statusRef.current !== 'error' &&
+        shouldAutoEndAfterAssistantReply(accumulated)
+      ) {
+        await endCall('agent');
+      } else if (statusRef.current !== 'ended') {
+        setStatus('live');
+      }
       inputRef.current?.focus();
     }
   }
@@ -264,7 +276,7 @@ export default function ChatPage() {
           {(status === 'live' || status === 'streaming') && (
             <button
               type="button"
-              onClick={endCall}
+              onClick={() => void endCall('lead')}
               className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-hot/40 hover:text-rupeezy-hot transition-colors"
             >
               <Square size={12} />
@@ -289,10 +301,10 @@ export default function ChatPage() {
           {messages.length === 0 && status !== 'starting' && (
             <div className="text-center py-16">
               <div className="font-serif text-2xl text-rupeezy-fg mb-2">
-                Start the call
+                Aria started the call
               </div>
               <div className="text-sm text-rupeezy-fg-faint">
-                Try{' '}
+                Reply with{' '}
                 <span className="font-mono text-rupeezy-fg-muted">
                   Hi, who is this?
                 </span>{' '}
