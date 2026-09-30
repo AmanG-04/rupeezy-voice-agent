@@ -134,7 +134,9 @@ def test_csv_upload_handles_per_row_errors(client: TestClient) -> None:
 def test_dialer_queue_lifecycle(isolated_db: Path) -> None:
     """Plain enqueue -> get_queue, no HTTP layer."""
     from app.agent.dialer import QueuedLead, enqueue, get_queue, reset_queue
+    from app.db.repo import init_db
 
+    init_db()
     reset_queue()
     enqueue(QueuedLead(lead_id="aaa111", name="Aman", phone="+91987"))
     enqueue(QueuedLead(lead_id="bbb222", name="Priya", phone="+91812"))

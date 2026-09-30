@@ -15,7 +15,7 @@ export default {
           // Foreground tokens
           fg: '#F5F5FA',           // primary text
           'fg-muted': '#9A9AAB',   // secondary
-          'fg-faint': '#5A5A6A',   // captions, metadata
+          'fg-faint': '#9292A3',   // accessible captions on dark surfaces
           // Brand accent — softer indigo, less saturated
           accent: '#7C7CFF',
           'accent-faint': '#7C7CFF20',

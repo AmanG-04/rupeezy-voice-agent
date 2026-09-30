@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = Field(
         default="gemini-embedding-2", alias="GEMINI_EMBEDDING_MODEL"
     )
+    gemini_rpm_limit: int = Field(default=12, ge=1, le=15)
+    gemini_daily_request_limit: int = Field(default=450, ge=1, le=500)
+    gemini_fallbacks_enabled: bool = False
 
     # --- Backend runtime ---
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
@@ -76,7 +79,8 @@ class Settings(BaseSettings):
         and duplicates are dropped."""
         chain: list[str] = []
         seen: set[str] = set()
-        for candidate in [self.gemini_chat_model, *self.gemini_chat_model_fallbacks.split(",")]:
+        fallbacks = self.gemini_chat_model_fallbacks.split(",") if self.gemini_fallbacks_enabled else []
+        for candidate in [self.gemini_chat_model, *fallbacks]:
             name = candidate.strip()
             if name and name not in seen:
                 chain.append(name)

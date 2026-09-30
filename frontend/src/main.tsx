@@ -5,7 +5,10 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import App from './App';
 import ChatPage from './pages/chat';
 import VoicePage from './pages/voice';
+import LivePage from './pages/live';
 import DashboardPage from './pages/dashboard';
+import ConfigurePage from './pages/configure';
+import SamplePage from './pages/sample';
 import { api } from './lib/apiBase';
 import './index.css';
 
@@ -14,6 +17,7 @@ const BACKEND_WARMUP_KEY = 'rupeezy_backend_warmup_v1';
 function BackendWarmup() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (window.location.pathname === '/sample') return;
     if (window.sessionStorage.getItem(BACKEND_WARMUP_KEY) === '1') return;
     window.sessionStorage.setItem(BACKEND_WARMUP_KEY, '1');
 
@@ -39,8 +43,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/chat" element={<ChatPage />} />
-        <Route path="/voice" element={<VoicePage />} />
+        <Route path="/voice" element={<LivePage />} />
+        <Route path="/voice/classic" element={<VoicePage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/configure" element={<ConfigurePage />} />
+        <Route path="/sample" element={<SamplePage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

@@ -82,7 +82,7 @@ def test_hard_rejection_overrides_warm_bucket_too() -> None:
     assert n.type == "dnd"
 
 
-def test_objection_based_hard_rejection() -> None:
+def test_unresolved_hesitation_is_not_opt_out() -> None:
     """Lead said 'think about it' but agent failed to address it AND lead ended."""
     objections = [
         ObjectionRaised(
@@ -97,4 +97,4 @@ def test_objection_based_hard_rejection() -> None:
         objections=objections,
         ended_by="lead",
     )
-    assert n.type == "dnd"
+    assert n.type == "nurture_sequence"

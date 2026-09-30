@@ -17,6 +17,7 @@ import {
   detectObjection,
 } from '../lib/objectionDetect';
 import { shouldAutoEndAfterAssistantReply } from '../lib/callEnding';
+import { loadAgentSettings } from '../lib/agentSettings';
 
 interface ChatMessage extends ConversationMessage {
   pending?: boolean;
@@ -47,6 +48,7 @@ export default function ChatPage() {
   const convIdRef = useRef<string | null>(null);
   const statusRef = useRef<Status>('idle');
   const turnAbortRef = useRef<AbortController | null>(null);
+  const startAttemptRef = useRef(0);
 
   useEffect(() => {
     convIdRef.current = convId;
@@ -111,6 +113,7 @@ export default function ChatPage() {
   });
 
   async function start() {
+    const attempt = ++startAttemptRef.current;
     setStatus('starting');
     setErrorMsg(null);
     setMessages([]);
@@ -118,8 +121,14 @@ export default function ChatPage() {
     setHandoffError(null);
     try {
       const r = await createConversation();
+      if (attempt !== startAttemptRef.current) {
+        endConversationBeacon(r.conv_id);
+        return;
+      }
       setConvId(r.conv_id);
+      convIdRef.current = r.conv_id;
       const opener = await startConversationOpener(r.conv_id);
+      if (attempt !== startAttemptRef.current) return;
       setMessages([{ ...opener }]);
       setStatus('live');
       inputRef.current?.focus();
@@ -143,6 +152,7 @@ export default function ChatPage() {
   async function endCall(endedBy: 'agent' | 'lead' = 'lead') {
     const cid = convIdRef.current ?? convId;
     if (!cid) return;
+    turnAbortRef.current?.abort();
     setStatus('scoring');
     setErrorMsg(null);
     try {
@@ -183,6 +193,7 @@ export default function ChatPage() {
     turnAbortRef.current?.abort();
     const controller = new AbortController();
     turnAbortRef.current = controller;
+    let failed = false;
     try {
       await streamTurn(convId, text, {
         onToken: (chunk) => {
@@ -200,6 +211,7 @@ export default function ChatPage() {
           setConvId(newConvId);
         },
         onError: (msg) => {
+          failed = true;
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
@@ -217,9 +229,11 @@ export default function ChatPage() {
         },
       }, controller.signal);
     } catch (e) {
+      failed = true;
       setStatus('error');
       setErrorMsg((e as Error).message);
     } finally {
+      if (controller.signal.aborted) return;
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
@@ -234,7 +248,7 @@ export default function ChatPage() {
       ) {
         await endCall('agent');
       } else if (statusRef.current !== 'ended') {
-        setStatus('live');
+        setStatus(failed ? 'error' : 'live');
       }
       inputRef.current?.focus();
     }
@@ -247,7 +261,7 @@ export default function ChatPage() {
     }
   }
 
-  const canSend = status === 'live' && input.trim().length > 0;
+  const canSend = (status === 'live' || status === 'error') && !!convId && input.trim().length > 0;
 
   return (
     <div className="min-h-screen flex flex-col bg-rupeezy-ink">
@@ -266,7 +280,7 @@ export default function ChatPage() {
           </div>
           <div className="flex-1 min-w-0 ml-1">
             <div className="font-serif text-base text-rupeezy-fg leading-tight">
-              Aria · Text chat
+              {loadAgentSettings().agent_name} · Text chat
             </div>
             <div className="text-[10px] text-rupeezy-fg-faint font-mono mt-0.5">
               {convId ? `conv ${convId}` : 'starting…'}
@@ -356,7 +370,8 @@ export default function ChatPage() {
           )}
           <div className="flex items-end gap-3">
             <textarea
-              ref={inputRef}
+      ref={inputRef}
+              aria-label="Your message to the agent"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onInputKey}

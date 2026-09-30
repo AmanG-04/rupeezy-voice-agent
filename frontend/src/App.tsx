@@ -7,11 +7,11 @@ import {
   LayoutDashboard,
   CircleCheck,
   CircleAlert,
-  Upload,
   ChevronRight,
 } from 'lucide-react';
 import { Brand } from './components/Brand';
 import PipelineDiagram from './components/PipelineDiagram';
+import LandingHero from './components/LandingHero';
 import UploadLeadsModal from './components/UploadLeadsModal';
 import { fetchWithRetry } from './lib/api';
 import { api } from './lib/apiBase';
@@ -63,6 +63,9 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-8 py-5 flex items-center justify-between">
           <Brand size="md" />
           <div className="flex items-center gap-6">
+            <button type="button" onClick={() => setUploadOpen(true)} className="text-xs text-rupeezy-fg-muted hover:text-rupeezy-fg transition-colors">
+              Upload demo leads
+            </button>
             <a
               href="https://github.com/AmanG-04/rupeezy-voice-agent"
               target="_blank"
@@ -80,50 +83,7 @@ export default function App() {
       </header>
 
       <main className="relative z-10 flex-1 flex flex-col">
-        {/* Hero */}
-        <section className="max-w-6xl w-full mx-auto px-8 pt-24 pb-16">
-          <div className="max-w-3xl">
-            <div className="eyebrow mb-5">AI voice agent for partner lead conversion</div>
-            <h1 className="font-serif text-5xl sm:text-6xl text-rupeezy-fg leading-[1.05] mb-7">
-              An agent that calls every lead{' '}
-              <span className="italic text-rupeezy-fg-muted">in their language</span>,
-              within minutes.
-            </h1>
-            <p className="text-rupeezy-fg-muted text-lg leading-relaxed max-w-2xl">
-              Rupeezy's Authorized Person program converts only 18% of leads — not because
-              the product is weak, but because RM-driven calling can't keep up with timing,
-              language, and queue capacity. This agent removes those bottlenecks.
-            </p>
-            <div className="mt-6 inline-flex items-start gap-2.5 rounded-md border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100 max-w-2xl">
-              <CircleAlert size={16} className="mt-0.5 shrink-0" />
-              <span>
-                Backend is hosted on Render and may take up to 60 seconds to wake up
-                after idle.
-              </span>
-            </div>
-
-            {/* Primary CTA — opens the same upload-leads modal the dashboard
-                uses. Judges drop a CSV (or download the rotating template),
-                hit "Process queue", funnel populates live. */}
-            <div className="mt-10 flex flex-wrap items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setUploadOpen(true)}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-md bg-rupeezy-accent text-white font-medium text-sm hover:opacity-90 transition-opacity shadow-lifted"
-              >
-                <Upload size={15} />
-                Upload leads
-              </button>
-              <Link
-                to="/voice"
-                className="inline-flex items-center gap-1.5 text-sm text-rupeezy-fg-muted hover:text-rupeezy-fg transition-colors"
-              >
-                Or talk to Aria yourself
-                <ArrowUpRight size={13} />
-              </Link>
-            </div>
-          </div>
-        </section>
+        <LandingHero />
 
         {/* Navigation cards */}
         <section className="max-w-6xl w-full mx-auto px-8 pb-16">
@@ -131,22 +91,22 @@ export default function App() {
             <NavCard
               to="/chat"
               icon={<MessageSquare size={18} />}
-              kicker="Phase 2"
+               kicker="Conversation"
               title="Text chat"
               blurb="Real-time, contextual, multilingual. Same brain as the voice path."
             />
             <NavCard
               to="/voice"
               icon={<Mic size={18} />}
-              kicker="Phase 6"
+               kicker="Browser voice"
               title="Voice call"
               blurb="Browser STT into the agent, sentence-streamed audio back."
             />
             <NavCard
               to="/dashboard"
               icon={<LayoutDashboard size={18} />}
-              kicker="Phase 5"
-              title="RM dashboard"
+               kicker="Analysis"
+              title="Conversation dashboard"
               blurb="Conversion funnel, lead drilldown, full handoff context."
             />
           </div>

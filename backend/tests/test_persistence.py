@@ -178,8 +178,9 @@ def test_funnel_counts(isolated_db: Path) -> None:
         )
         c.messages.append(Message(role="user", text="x"))
         c.messages.append(Message(role="assistant", text="y"))
-        # 31s on 'hot' so it counts as engaged; 10s on 'warm' so it does not.
+        # Engagement requires two lead turns, independently of response latency.
         if bucket == "hot":
+            c.messages.append(Message(role="user", text="Tell me more"))
             c.ended_at = "2026-05-04T10:00:31+00:00"
         elif bucket == "warm":
             c.ended_at = "2026-05-04T10:00:10+00:00"
@@ -194,7 +195,7 @@ def test_funnel_counts(isolated_db: Path) -> None:
 
     counts = funnel_counts()
     assert counts["contacted"] == 3
-    assert counts["engaged"] == 1  # only 'hot' was >30s
+    assert counts["engaged"] == 1  # only 'hot' had two lead turns
     assert counts["hot"] == 1
     assert counts["warm"] == 1
     assert counts["cold"] == 1

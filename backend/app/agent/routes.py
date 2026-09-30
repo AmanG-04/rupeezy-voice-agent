@@ -9,6 +9,7 @@ Phase 2 surface:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -17,20 +18,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-import base64
 
 from app.agent.conversation import (
     Conversation,
     get_store,
     stream_user_turn,
-    stream_user_turn_with_audio,
 )
 from app.scoring.handoff import build_handoff
 from app.scoring.schemas import HandoffRecord
-
-# Per-process cache of handoff records, keyed by conv_id. Phase 4 moves this
-# to Supabase. Phase 3 keeps it in-memory so the dashboard mock works.
-_handoff_cache: dict[str, HandoffRecord] = {}
+from app.agent.locks import conversation_lock
+from app.agent.settings import AgentSettings
 
 log = logging.getLogger("rupeezy.agent.routes")
 
@@ -49,6 +46,7 @@ class CreateConversationRequest(BaseModel):
     """
 
     lead_id: str | None = None
+    settings: AgentSettings = Field(default_factory=AgentSettings)
 
 
 class CreateConversationResponse(BaseModel):
@@ -170,6 +168,8 @@ _OPENER_BY_LANG = {
 
 def _opener_for_lang(lang: str | None) -> str:
     key = (lang or "en").strip().lower().split("-")[0]
+    if key in ("hinglish", "hindi"):
+        key = "hi"
     return _OPENER_BY_LANG.get(key, _OPENER_BY_LANG["en"])
 
 
@@ -185,12 +185,25 @@ async def create_conversation(
     """
     store = get_store()
     lead_id = body.lead_id if body else None
+    from app.db.repo import get_lead, persist_conversation
+
+    if lead_id:
+        lead = await asyncio.to_thread(get_lead, lead_id)
+        if lead is None:
+            raise HTTPException(404, "Lead not found")
+        if lead.dnd:
+            raise HTTPException(409, "This lead opted out")
     if lead_id:
         conv = store.create_for_lead(lead_id)
         log.info("created conversation %s for lead %s", conv.conv_id, lead_id)
     else:
         conv = store.create()
         log.info("created conversation %s", conv.conv_id)
+    await asyncio.to_thread(persist_conversation, conv)
+    from app.db.repo import save_session_settings
+
+    conv.settings = body.settings if body else AgentSettings()
+    await asyncio.to_thread(save_session_settings, conv.conv_id, conv.settings.model_dump_json())
     return CreateConversationResponse(
         conv_id=conv.conv_id,
         started_at=conv.started_at,
@@ -203,6 +216,11 @@ async def conversation_opener(
     conv_id: str,
     body: OpenerRequest | None = None,
 ) -> MessageDTO:
+    async with conversation_lock(conv_id):
+        return await _conversation_opener(conv_id, body)
+
+
+async def _conversation_opener(conv_id: str, body: OpenerRequest | None) -> MessageDTO:
     """Start the outbound call with Aria's opener.
 
     Idempotent for a brand-new conversation: if the opener was already added,
@@ -215,12 +233,21 @@ async def conversation_opener(
         raise HTTPException(409, f"conversation {conv_id} already ended")
 
     existing = next((m for m in conv.messages if m.role == "assistant"), None)
-    msg = existing or conv.add("assistant", _opener_for_lang(body.lang if body else None))
+    opener = _opener_for_lang(body.lang if body else conv.settings.language)
+    if conv.settings.custom:
+        opener = (f"Hello, I'm {conv.settings.agent_name}, an AI assistant from "
+                  f"{conv.settings.business_name}. Can we talk briefly about "
+                  f"{conv.settings.program_name}?")
+        if conv.settings.language in ("hinglish", "hi-IN"):
+            opener = (f"Namaste, main {conv.settings.business_name} se "
+                      f"{conv.settings.agent_name}, ek AI assistant hoon. "
+                      f"Kya hum {conv.settings.program_name} ke baare mein baat kar sakte hain?")
+    msg = existing or conv.add("assistant", opener)
 
     try:
         from app.db.repo import persist_conversation
 
-        persist_conversation(conv, channel="text")
+        await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
     except Exception:  # noqa: BLE001
         log.exception("failed to persist opener for %s", conv.conv_id)
 
@@ -232,14 +259,14 @@ async def list_conversations(bucket: str | None = None, limit: int = 200) -> lis
     """Persistent list — survives restarts. Optional bucket filter joins on handoff."""
     from app.db.repo import list_conversation_rows
 
-    rows = list_conversation_rows(bucket=bucket, limit=limit)
+    rows = await asyncio.to_thread(list_conversation_rows, bucket=bucket, limit=max(1, min(limit, 200)))
     return [_row_to_dto(r) for r in rows]
 
 
 @router.get("/{conv_id}", response_model=ConversationDTO)
 async def get_conversation(conv_id: str) -> ConversationDTO:
     # Hot path: in-memory store (current process).
-    conv = get_store().get(conv_id)
+    conv = await asyncio.to_thread(get_store().get, conv_id)
     if conv is not None:
         return _to_dto(conv)
     # Cold path: rehydrate from DB.
@@ -276,7 +303,7 @@ async def turn(conv_id: str, body: TurnRequest):
     from app.agent.conversation import _detect_lang_from_text
 
     detected = _detect_lang_from_text(user_text)
-    effective_lang = detected or lang_hint
+    effective_lang = detected or lang_hint or conv.settings.language
 
     async def gen() -> AsyncIterator[dict[str, str]]:
         # Emit the resolved language FIRST so the frontend can pick the
@@ -288,8 +315,9 @@ async def turn(conv_id: str, body: TurnRequest):
                 "data": json.dumps({"lang": effective_lang}),
             }
         try:
-            async for chunk in stream_user_turn(conv_id, user_text, lang_hint=lang_hint):
-                yield {"event": "token", "data": json.dumps({"text": chunk})}
+            async with conversation_lock(conv_id):
+                async for chunk in stream_user_turn(conv_id, user_text, lang_hint=lang_hint):
+                    yield {"event": "token", "data": json.dumps({"text": chunk})}
         except ValueError as e:
             yield {"event": "error", "data": json.dumps({"message": str(e)})}
             return
@@ -304,45 +332,8 @@ async def turn(conv_id: str, body: TurnRequest):
 
 @router.post("/{conv_id}/turn/audio")
 async def turn_audio(conv_id: str, body: TurnRequest):
-    """SSE stream of agent reply tokens AND audio chunks.
-
-    Emits two event types:
-      event: token  data: {"text": "<chunk>"}              # for live transcript
-      event: audio  data: {"wav_b64": "<base64>"}          # one sentence
-      event: done   data: {}
-      event: error  data: {"message": "..."}
-
-    Audio chunks arrive interleaved with text — frontend should queue them
-    on a Web Audio player and play sequentially while later chunks stream.
-    """
-    conv = get_store().get(conv_id)
-    if conv is None:
-        raise HTTPException(404, f"conversation {conv_id} not found")
-    if conv.ended_at:
-        raise HTTPException(409, f"conversation {conv_id} already ended")
-
-    user_text = body.text.strip()
-    if not user_text:
-        raise HTTPException(400, "empty text")
-
-    async def gen() -> AsyncIterator[dict[str, str]]:
-        try:
-            async for kind, payload in stream_user_turn_with_audio(conv_id, user_text):
-                if kind == "text":
-                    yield {"event": "token", "data": json.dumps({"text": payload})}
-                elif kind == "audio":
-                    b64 = base64.b64encode(payload).decode("ascii")  # type: ignore[arg-type]
-                    yield {"event": "audio", "data": json.dumps({"wav_b64": b64})}
-        except ValueError as e:
-            yield {"event": "error", "data": json.dumps({"message": str(e)})}
-            return
-        except Exception as e:  # noqa: BLE001
-            log.exception("voice turn failed")
-            yield {"event": "error", "data": json.dumps({"message": f"agent error: {e}"})}
-            return
-        yield {"event": "done", "data": "{}"}
-
-    return EventSourceResponse(gen())
+    """Retired audio path. The browser uses the supported Edge TTS route."""
+    raise HTTPException(410, "Use /turn for text and /api/tts/synthesize for sentence audio.")
 
 
 class EndConversationResponse(BaseModel):
@@ -353,6 +344,11 @@ class EndConversationResponse(BaseModel):
 
 @router.post("/{conv_id}/end", response_model=EndConversationResponse)
 async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationResponse:
+    async with conversation_lock(conv_id):
+        return await _end_conversation(conv_id, body)
+
+
+async def _end_conversation(conv_id: str, body: EndRequest) -> EndConversationResponse:
     """End the conversation AND run the post-call pipeline.
 
     The pipeline is best-effort — if scoring fails (rate limit, model error),
@@ -360,15 +356,28 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
     the reason. Frontend should render the handoff if present, fallback to
     a "scoring pending" state if not.
     """
-    conv = get_store().end(conv_id, ended_by=body.ended_by)
+    conv = await asyncio.to_thread(get_store().end, conv_id, ended_by=body.ended_by)
     if conv is None:
         raise HTTPException(404, f"conversation {conv_id} not found")
+    from app.db.repo import get_handoff_row
+
+    existing = await asyncio.to_thread(get_handoff_row, conv_id)
+    if existing:
+        return EndConversationResponse(
+            conversation=_to_dto(conv),
+            handoff=HandoffRecord.model_validate_json(existing.payload_json),
+        )
+    if conv.ended_by == "dropped":
+        from app.db.repo import persist_conversation
+
+        await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
+        return EndConversationResponse(conversation=_to_dto(conv))
 
     # Always persist the (now-ended) conversation, even if scoring fails below.
     try:
         from app.db.repo import persist_conversation
 
-        persist_conversation(conv, channel="text")
+        await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
     except Exception:  # noqa: BLE001
         log.exception("failed to persist conversation %s on /end", conv_id)
 
@@ -377,11 +386,10 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
     if conv.messages:
         try:
             handoff = await build_handoff(conversation=conv)
-            _handoff_cache[conv_id] = handoff
             try:
                 from app.db.repo import persist_handoff
 
-                persist_handoff(handoff)
+                await asyncio.to_thread(persist_handoff, handoff)
             except Exception:  # noqa: BLE001
                 log.exception("failed to persist handoff for %s", conv_id)
             log.info(
@@ -401,7 +409,7 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
     # Phase 8: fire WhatsApp follow-up. Best-effort; never fails /end.
     # DND leads are filtered inside the sender (see select_template), so we
     # only invoke it for next-actions where a message is plausibly wanted.
-    if handoff and handoff.next_action.type in (
+    if handoff and not conv.settings.custom and handoff.next_action.type in (
         "warm_transfer",
         "whatsapp_link_sent",
         "nurture_sequence",
@@ -423,10 +431,6 @@ async def end_conversation(conv_id: str, body: EndRequest) -> EndConversationRes
 
 @router.get("/{conv_id}/handoff", response_model=HandoffRecord)
 async def get_handoff(conv_id: str) -> HandoffRecord:
-    # Hot path: in-memory cache from the same process that scored the call.
-    cached = _handoff_cache.get(conv_id)
-    if cached is not None:
-        return cached
     # Cold path: rehydrate from the DB. Survives restarts.
     from app.db.repo import get_handoff_row
 
@@ -434,5 +438,4 @@ async def get_handoff(conv_id: str) -> HandoffRecord:
     if row is None:
         raise HTTPException(404, f"no handoff for conversation {conv_id}")
     handoff = HandoffRecord.model_validate_json(row.payload_json)
-    _handoff_cache[conv_id] = handoff  # warm the cache for subsequent reads
     return handoff

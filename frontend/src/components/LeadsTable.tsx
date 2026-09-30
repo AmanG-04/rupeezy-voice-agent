@@ -60,8 +60,8 @@ export default function LeadsTable({
   }
 
   return (
-    <div className="glass-card rounded-2xl overflow-hidden">
-      <table className="w-full">
+    <div className="glass-card rounded-2xl overflow-x-auto">
+      <table className="w-full min-w-[740px]">
         <thead>
           <tr className="text-left">
             <Th>Bucket</Th>
@@ -81,6 +81,13 @@ export default function LeadsTable({
               <tr
                 key={lead.conv_id}
                 onClick={() => onSelect(lead.conv_id)}
+                tabIndex={0}
+                aria-label={`Open ${lead.name || 'lead'} analysis`}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault(); onSelect(lead.conv_id);
+                  }
+                }}
                 className={`group border-t border-rupeezy-border-subtle cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-rupeezy-accent-faint'
@@ -98,6 +105,9 @@ export default function LeadsTable({
                   </div>
                 </td>
                 <td className="px-5 py-4 align-top max-w-md">
+                  <div className="text-sm font-medium mb-1">
+                    {lead.name || 'Anonymous demo lead'}
+                  </div>
                   <div className="text-sm text-rupeezy-fg leading-snug line-clamp-2">
                     {lead.summary_short}
                   </div>
@@ -135,7 +145,7 @@ export default function LeadsTable({
                           onDelete(lead.conv_id);
                         }
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-rupeezy-fg-faint hover:text-rupeezy-hot hover:bg-rupeezy-hot-faint"
+                      className="opacity-100 sm:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1.5 rounded-md text-rupeezy-fg-faint hover:text-rupeezy-hot hover:bg-rupeezy-hot-faint"
                     >
                       <Trash2 size={13} />
                     </button>

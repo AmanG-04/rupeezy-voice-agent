@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.agent.routes import router as agent_router
+from app.agent.live import router as live_router
 from app.config import get_settings
 from app.dashboard.routes import router as dashboard_router
 from app.tts.edge_tts_route import router as tts_router
@@ -39,14 +40,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     from app.db.repo import init_db
 
     init_db()
-    log.info("DB initialised at %s", settings.database_url)
+    from app.agent.dialer import restore_queue
+
+    restore_queue()
+    log.info("DB initialised")
     yield
 
 
 app = FastAPI(
-    title="Rupeezy AI Voice Agent",
+    title="Voice Studio",
     version=__version__,
-    description="Backend for the Rupeezy partner-program voice agent.",
+    description="Configurable business voice agents with native audio and conversation handoffs.",
     lifespan=lifespan,
 )
 
@@ -96,6 +100,7 @@ async def version() -> dict:
 
 
 app.include_router(agent_router)
+app.include_router(live_router)
 app.include_router(dashboard_router)
 app.include_router(tts_router)
 

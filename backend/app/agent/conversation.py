@@ -11,6 +11,7 @@ Phase 4 will move the store to Supabase; Conversation API stays.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -20,7 +21,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
-import google.generativeai as genai
+from google.genai import types
+
+from app.ai import DemoBusyError, get_client, generate_stream
+from app.agent.settings import AgentSettings
 
 from app.agent.system_prompt import build_prompt_parts
 from app.config import get_settings
@@ -188,6 +192,8 @@ def _should_retrieve(user_text: str, conv: "Conversation") -> bool:
     text = user_text.strip().lower()
     if not text:
         return False
+    if any(ord(char) > 127 for char in text) and len(text) > 8:
+        return True
 
     # Long messages almost always have something worth retrieving.
     if len(text) >= 80:
@@ -232,6 +238,8 @@ class Conversation:
     # Phase 10: when populated, the prompt builder injects prior-call context.
     # The demo chat path leaves this None; the dialer / batch caller sets it.
     lead_id: str | None = None
+    channel: str = "text"
+    settings: AgentSettings = field(default_factory=AgentSettings)
 
     def add(self, role: Role, text: str) -> Message:
         msg = Message(role=role, text=text)
@@ -260,8 +268,7 @@ class ConversationStore:
     /turn requests can pick up state without a DB round-trip. Beyond
     `_MAX_ENDED` ended conversations, the oldest are evicted.
 
-    Active conversations (ended_at is None) are NEVER evicted — only the
-    backlog of completed-but-not-yet-cleaned-up ones.
+    Persisted conversations can be restored after eviction or restart.
     """
 
     _MAX_ENDED: int = 100
@@ -299,10 +306,34 @@ class ConversationStore:
         return c
 
     def get(self, conv_id: str) -> Conversation | None:
-        return self._convs.get(conv_id)
+        cached = self._convs.get(conv_id)
+        if cached is not None:
+            return cached
+        from app.db.repo import get_conversation_row, load_session_settings
+
+        row = get_conversation_row(conv_id)
+        if row is None:
+            return None
+        restored = Conversation(
+            conv_id=row.id,
+            lead_id=row.lead_id,
+            started_at=row.started_at.isoformat(),
+            ended_at=row.ended_at.isoformat() if row.ended_at else None,
+            ended_by=row.ended_by,
+            language=row.language_used,
+            channel=row.channel,
+            messages=[Message(role=m.role, text=m.text, created_at=m.created_at.isoformat())
+                      for m in row.messages],
+        )
+        stored_settings = load_session_settings(conv_id)
+        if stored_settings:
+            restored.settings = AgentSettings.model_validate_json(stored_settings)
+        self._convs[conv_id] = restored
+        self._evict_if_needed()
+        return restored
 
     def end(self, conv_id: str, ended_by: str = "agent") -> Conversation | None:
-        c = self._convs.get(conv_id)
+        c = self.get(conv_id)
         if c and not c.ended_at:
             c.ended_at = datetime.now(timezone.utc).isoformat()
             c.ended_by = ended_by
@@ -341,7 +372,7 @@ def _ensure_genai() -> None:
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY not set; cannot run conversation.")
-    genai.configure(api_key=settings.gemini_api_key)
+    get_client()
     _genai_configured = True
 
 
@@ -388,18 +419,31 @@ async def stream_user_turn(
     like. Disambiguates romanised regional words ("Bhalobashi") that would
     otherwise be misclassified as English.
     """
-    _ensure_genai()
     turn_started = time.perf_counter()
     store = get_store()
     retriever = get_retriever()
 
-    conv = store.get(conv_id)
+    conv = await asyncio.to_thread(store.get, conv_id)
     if conv is None:
         raise ValueError(f"unknown conversation {conv_id}")
     if conv.ended_at:
         raise ValueError(f"conversation {conv_id} already ended")
 
     conv.add("user", user_text)
+    from app.agent.opt_out import is_opt_out
+    from app.db.repo import mark_lead_dnd, persist_conversation
+
+    await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
+
+    if is_opt_out(user_text):
+        if conv.lead_id:
+            await asyncio.to_thread(mark_lead_dnd, conv.lead_id)
+        reply = "Theek hai, aapko dobara contact nahi kiya jayega." if lang_hint in ("hinglish", "hi-IN", "hindi") else "Understood. You won't be contacted again."
+        conv.add("assistant", reply)
+        await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
+        yield reply
+        return
+    _ensure_genai()
     log.info(
         "latency | conv=%s stage=turn_start chars=%d k=%d lang_hint=%r",
         conv_id,
@@ -417,9 +461,9 @@ async def stream_user_turn(
     # ~200-500ms latency without hurting reply quality.
     hits: list = []
     retrieve_started = time.perf_counter()
-    if _should_retrieve(user_text, conv):
+    if not conv.settings.custom and _should_retrieve(user_text, conv):
         try:
-            hits = retriever.retrieve(user_text, k=k)
+            hits = await asyncio.to_thread(retriever.retrieve, user_text, k=k)
         except Exception as e:  # noqa: BLE001
             log.warning("retrieval failed: %s — proceeding without retrieved context", e)
             hits = []
@@ -441,7 +485,7 @@ async def stream_user_turn(
         try:
             from app.agent.lead_memory import get_lead_context
 
-            ctx = get_lead_context(conv.lead_id)
+            ctx = await asyncio.to_thread(get_lead_context, conv.lead_id)
         except Exception as e:  # noqa: BLE001
             log.warning("lead_memory lookup failed for %s: %s", conv.lead_id, e)
     log.info(
@@ -452,8 +496,11 @@ async def stream_user_turn(
     )
 
     prompt_started = time.perf_counter()
-    parts = build_prompt_parts(retriever, retrieved_hits=hits, lead_context=ctx)
-    system_instruction = parts.assemble()
+    if conv.settings.custom:
+        system_instruction = conv.settings.instruction()
+    else:
+        parts = await asyncio.to_thread(build_prompt_parts, retriever, retrieved_hits=hits, lead_context=ctx)
+        system_instruction = parts.assemble()
     log.info(
         "latency | conv=%s stage=prompt_build prompt_chars=%d elapsed_ms=%.1f",
         conv_id,
@@ -470,7 +517,9 @@ async def stream_user_turn(
     # Effect: lead can switch languages mid-call without touching the
     # picker; we follow whatever they spoke.
     detected = _detect_lang_from_text(user_text)
-    effective_lang = detected or lang_hint
+    effective_lang = detected or lang_hint or conv.settings.language
+    if effective_lang:
+        conv.language = effective_lang
     pretty = _LANG_LABELS.get((effective_lang or "").strip().lower(), None)
     log.info(
         "turn lang_hint=%r detected=%r -> pretty=%r (override: %s)",
@@ -509,6 +558,9 @@ async def stream_user_turn(
         )
         system_instruction = system_instruction + override
 
+    if conv.settings.custom:
+        system_instruction = conv.settings.instruction() + f"\nReply in {pretty or 'English'} this turn."
+
     settings = get_settings()
     chain = settings.chat_model_chain
 
@@ -532,19 +584,21 @@ async def stream_user_turn(
 
         log.info("turn | conv=%s model=%s (try %d/%d)",
                  conv_id, model_name, model_idx + 1, len(chain))
-        model = genai.GenerativeModel(
-            model_name,
-            system_instruction=system_instruction,
-            generation_config=GENERATION_CONFIG,
-            safety_settings=SAFETY_SETTINGS,
-        )
-        chat = model.start_chat(history=history)
         model_started = time.perf_counter()
         first_chunk_ms: float | None = None
 
         try:
-            stream = chat.send_message(user_text, stream=True)
-            for chunk in stream:
+            contents = [types.Content.model_validate(item) for item in history]
+            contents.append(types.Content(role="user", parts=[types.Part(text=user_text)]))
+            stream = generate_stream(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    **GENERATION_CONFIG,
+                ),
+            )
+            async for chunk in stream:
                 piece = getattr(chunk, "text", "") or ""
                 if not piece:
                     continue
@@ -572,6 +626,14 @@ async def stream_user_turn(
                 chunk_count,
                 (time.perf_counter() - model_started) * 1000,
             )
+        except asyncio.CancelledError:
+            partial = "".join(response_text_parts).strip()
+            if partial:
+                conv.add("assistant", partial)
+            await asyncio.shield(asyncio.to_thread(persist_conversation, conv, channel=conv.channel))
+            raise
+        except DemoBusyError:
+            raise
         except Exception as e:  # noqa: BLE001
             emsg = str(e)
             is_quota = "429" in emsg or "quota" in emsg.lower() or "rate" in emsg.lower()
@@ -598,7 +660,7 @@ async def stream_user_turn(
                 # quota-specific filler.
                 log.warning("all %d models in chain rate-limited", len(chain))
                 is_rate_limit = True
-                fallback = "Just a second — let me check that and get back to you."
+                fallback = "The live demo has reached its API quota. Please open the sample tour or try again later."
             else:
                 log.exception("Gemini call failed (non-quota) on %s", model_name)
                 fallback = "Sorry, I lost the line for a moment. Could you say that again?"
@@ -628,7 +690,7 @@ async def stream_user_turn(
     try:
         from app.db.repo import persist_conversation
 
-        persist_conversation(conv, channel="text")
+        await asyncio.to_thread(persist_conversation, conv, channel=conv.channel)
     except Exception:  # noqa: BLE001
         log.exception("failed to persist conversation %s", conv.conv_id)
 

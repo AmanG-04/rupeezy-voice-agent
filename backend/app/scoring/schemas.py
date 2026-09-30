@@ -103,10 +103,25 @@ class CallMeta(BaseModel):
     ended_by: str = "agent"  # agent | lead | dropped
 
 
+class Evidence(BaseModel):
+    field: str
+    turn: int = Field(ge=0)
+    quote: str
+
+
+class Review(BaseModel):
+    bucket: Bucket | None = None
+    reason: str = Field(default="", max_length=500)
+    notes: str = Field(default="", max_length=2000)
+
+
 class HandoffRecord(BaseModel):
     """Full handoff payload — what gets persisted + shown to the RM."""
 
     lead_id: str
+    conversation_id: str | None = None
+    evidence: list[Evidence] = Field(default_factory=list)
+    review: Review = Field(default_factory=Review)
     contact: Contact
     call: CallMeta
     classification: Classification

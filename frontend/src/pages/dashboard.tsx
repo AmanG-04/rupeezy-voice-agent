@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Upload, Search, Trash2 } from 'lucide-react';
 import FunnelHeader from '../components/FunnelHeader';
@@ -37,8 +37,10 @@ export default function DashboardPage() {
   // so a manual click never blanks the table.
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const refreshAttemptRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const attempt = ++refreshAttemptRef.current;
     setError(null);
     setRefreshing(true);
     try {
@@ -46,14 +48,18 @@ export default function DashboardPage() {
         getFunnel(),
         listLeads(bucketFilter === 'all' ? {} : { bucket: bucketFilter }),
       ]);
+      if (attempt !== refreshAttemptRef.current) return;
       setFunnel(f);
       setLeads(l);
       setLastRefreshed(new Date());
     } catch (e) {
+      if (attempt !== refreshAttemptRef.current) return;
       setError((e as Error).message);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (attempt === refreshAttemptRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [bucketFilter]);
 
@@ -115,7 +121,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-rupeezy-ink">
       {/* Glass header */}
       <header className="border-b border-rupeezy-border-subtle bg-rupeezy-surface/80 backdrop-blur-xl sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-8 py-4 flex items-center gap-5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 py-4 flex flex-wrap items-center gap-3 sm:gap-5">
           <Link
             to="/"
             className="text-rupeezy-fg-faint hover:text-rupeezy-fg transition-colors"
@@ -128,7 +134,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1 min-w-0 ml-2">
             <div className="font-serif text-lg text-rupeezy-fg leading-tight">
-              RM Dashboard
+              Conversation Dashboard
             </div>
             <div className="text-xs text-rupeezy-fg-faint mt-0.5">
               Conversion funnel · qualified leads · handoff context
@@ -164,7 +170,10 @@ export default function DashboardPage() {
       </header>
 
       {/* Body */}
-      <main className="max-w-6xl mx-auto px-8 py-8 space-y-7">
+      <main className="max-w-6xl mx-auto px-4 sm:px-8 py-8 space-y-7">
+        <p className="text-xs text-rupeezy-fg-muted">
+          Public demo dashboard. Use fictional leads. Calls are scripted simulations; messages are mock previews. No callbacks are scheduled.
+        </p>
         {error && (
           <div className="rounded-xl border border-rupeezy-hot/30 bg-rupeezy-hot-faint px-4 py-3 text-sm text-rupeezy-hot">
             {error}
@@ -202,6 +211,7 @@ export default function DashboardPage() {
             />
             <input
               type="search"
+              aria-label="Search demo leads"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search summary, conv id, language, action…"

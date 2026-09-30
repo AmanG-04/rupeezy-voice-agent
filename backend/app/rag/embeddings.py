@@ -12,11 +12,12 @@ import logging
 import time
 from pathlib import Path
 
-import google.generativeai as genai
+from google.genai import types
 import numpy as np
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
+from app.ai import get_client
 
 log = logging.getLogger("rupeezy.rag.embeddings")
 
@@ -70,14 +71,17 @@ def _ensure_configured() -> None:
         raise RuntimeError(
             "GEMINI_API_KEY not set. Add it to .env (project root or backend/.env)."
         )
-    genai.configure(api_key=settings.gemini_api_key)
+    get_client()
     _genai_configured = True
 
 
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=1, max=10))
 def _embed_one(text: str, *, task_type: str, model: str) -> list[float]:
-    res = genai.embed_content(model=model, content=text, task_type=task_type)
-    vec = res["embedding"]
+    res = get_client().models.embed_content(
+        model=model, contents=text,
+        config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=_EMBED_DIM),
+    )
+    vec = res.embeddings[0].values
     if len(vec) != _EMBED_DIM:
         raise RuntimeError(
             f"Unexpected embedding dim {len(vec)} (expected {_EMBED_DIM}). "

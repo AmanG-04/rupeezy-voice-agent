@@ -16,6 +16,7 @@ import {
   getLeadsQueue,
   uploadLeadsCsv,
 } from '../lib/api';
+import { useDialog } from '../lib/useDialog';
 
 // Each download produces a fresh 4-row CSV: 2 HOT, 1 WARM, 1 COLD.
 // Names are sampled without replacement from per-scenario pools, and phone
@@ -38,9 +39,9 @@ const COLD_NAMES = [
   'Kabir Saxena', 'Sandeep Joshi', 'Tridib Chakraborty',
 ];
 
-const HOT_LANGS = ['english', 'hinglish', 'tamil', 'telugu'];
-const WARM_LANGS = ['hindi', 'hinglish', 'english', 'marathi', 'gujarati'];
-const COLD_LANGS = ['english', 'hindi', 'bengali'];
+const HOT_LANGS = ['english', 'hinglish'];
+const WARM_LANGS = ['hinglish', 'english'];
+const COLD_LANGS = ['english', 'hinglish'];
 
 const SOURCES = ['referral', 'website', 'linkedin', 'youtube', 'instagram', 'whatsapp', 'inbound'];
 
@@ -99,6 +100,7 @@ export default function UploadLeadsModal({
   onClose: () => void;
   onAfterDial: () => void;
 }) {
+  const dialogRef = useDialog(onClose);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<BatchUploadResponse | null>(
     null,
@@ -217,6 +219,11 @@ export default function UploadLeadsModal({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Upload fictional leads and simulate conversations"
+        tabIndex={-1}
         className="w-full max-w-2xl glass-elevated rounded-2xl shadow-lifted max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >

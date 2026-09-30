@@ -97,6 +97,9 @@ export interface CallMeta {
 
 export interface HandoffRecord {
   lead_id: string;
+  conversation_id?: string | null;
+  evidence?: Array<{ field: string; turn: number; quote: string }>;
+  review?: { bucket: Bucket | null; reason: string; notes: string };
   contact: Contact;
   call: CallMeta;
   classification: Classification;
@@ -115,6 +118,7 @@ export interface EndConversationResponse {
 }
 
 import { api } from './apiBase';
+import { loadAgentSettings } from './agentSettings';
 
 const BASE = api('/api/conversations');
 
@@ -160,11 +164,11 @@ export async function fetchWithRetry(
 export async function createConversation(
   opts?: { leadId?: string },
 ): Promise<CreateConversationResponse> {
-  const init: RequestInit = { method: 'POST' };
-  if (opts?.leadId) {
-    init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify({ lead_id: opts.leadId });
-  }
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: loadAgentSettings(), ...(opts?.leadId ? { lead_id: opts.leadId } : {}) }),
+  };
   const r = await fetch(BASE, init);
   if (!r.ok) throw new Error(`createConversation: ${r.status}`);
   return r.json();
@@ -278,6 +282,8 @@ export interface LeadRow {
   next_action: NextActionType;
   summary_short: string;
   language_used: string;
+  name?: string;
+  reviewed_bucket?: Bucket | null;
 }
 
 export interface LeadDetail {
@@ -412,6 +418,16 @@ export async function deleteLead(convId: string): Promise<void> {
   if (!r.ok) throw new Error(`deleteLead: ${r.status}`);
 }
 
+export async function reviewLead(convId: string, review: NonNullable<HandoffRecord['review']>): Promise<HandoffRecord> {
+  const r = await fetch(`${DASH}/leads/${convId}/review`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(review),
+  });
+  if (!r.ok) throw new Error(`Could not save review (${r.status})`);
+  return r.json();
+}
+
 export async function deleteBucket(bucket: Bucket): Promise<{ deleted: number }> {
   const r = await fetch(`${DASH}/leads/bucket/${bucket}`, { method: 'DELETE' });
   if (!r.ok) throw new Error(`deleteBucket: ${r.status}`);
@@ -468,41 +484,21 @@ export async function streamTurn(
   try {
     r = await fetchTurn(convId);
   } catch (e) {
-    // Network-level failure (Render cold-start, DNS blip). Retry once.
-    await new Promise((s) => setTimeout(s, 1500));
-    try {
-      r = await fetchTurn(convId);
-    } catch (e2) {
-      handlers.onError?.(`network: ${(e2 as Error).message}`);
-      return;
-    }
-    void e;
+    if (signal?.aborted) return;
+    handlers.onError?.(`Network interruption: ${(e as Error).message}. Check the transcript before retrying.`);
+    return;
   }
 
-  // 5xx from Render Cloudflare often means the worker is mid-restart.
-  // Wait briefly and retry once.
+  // Mutating turns are not automatically retried: upstream may have accepted them.
   if (r.status >= 502 && r.status <= 504) {
-    await new Promise((s) => setTimeout(s, 1500));
-    try {
-      r = await fetchTurn(convId);
-    } catch (e) {
-      handlers.onError?.(`network: ${(e as Error).message}`);
-      return;
-    }
+    handlers.onError?.('Backend unavailable. Wait for it to wake up, then retry.');
+    return;
   }
 
-  // 404 means the backend lost the conversation (free-tier redeploy wiped
-  // in-memory state). Mint a new conv and retry the turn so the demo
-  // doesn't dead-end on a stale id.
+  // Never replace an ended conversation silently or lose its history.
   if (r.status === 404 || r.status === 409) {
-    try {
-      const fresh = await createConversation();
-      handlers.onConvReplaced?.(fresh.conv_id);
-      r = await fetchTurn(fresh.conv_id);
-    } catch (e) {
-      handlers.onError?.(`conv lost; restart failed: ${(e as Error).message}`);
-      return;
-    }
+    handlers.onError?.(r.status === 409 ? 'This conversation has ended. Start a new conversation.' : 'Conversation unavailable. Please start a new conversation.');
+    return;
   }
 
   if (!r.ok || !r.body) {
@@ -513,6 +509,7 @@ export async function streamTurn(
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let terminal = false;
 
   while (true) {
     let read: ReadableStreamReadResult<Uint8Array>;
@@ -529,15 +526,16 @@ export async function streamTurn(
     }
     const { done, value } = read;
     if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    buffer += decoder.decode(value, { stream: true });
 
     // SSE messages are separated by a blank line.
     let split: number;
-    while ((split = buffer.indexOf('\n\n')) >= 0) {
+    let separator = /\r?\n\r?\n/.exec(buffer);
+    while (separator && (split = separator.index) >= 0) {
       const raw = buffer.slice(0, split);
-      buffer = buffer.slice(split + 2);
+      buffer = buffer.slice(split + separator[0].length);
       const event = parseSSE(raw);
-      if (!event) continue;
+      if (!event) { separator = /\r?\n\r?\n/.exec(buffer); continue; }
       if (event.event === 'token') {
         try {
           const parsed = JSON.parse(event.data) as { text: string };
@@ -553,8 +551,10 @@ export async function streamTurn(
           /* ignore malformed lang event */
         }
       } else if (event.event === 'done') {
+        terminal = true;
         handlers.onDone?.();
       } else if (event.event === 'error') {
+        terminal = true;
         try {
           const parsed = JSON.parse(event.data) as { message: string };
           handlers.onError?.(parsed.message);
@@ -562,14 +562,16 @@ export async function streamTurn(
           handlers.onError?.(event.data);
         }
       }
+      separator = /\r?\n\r?\n/.exec(buffer);
     }
   }
+  if (!terminal && !signal?.aborted) handlers.onError?.('Response stream ended unexpectedly. Your conversation is saved.');
 }
 
 function parseSSE(raw: string): { event: string; data: string } | null {
   let event = 'message';
   const dataLines: string[] = [];
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     if (line.startsWith('event:')) event = line.slice(6).trim();
     else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
   }

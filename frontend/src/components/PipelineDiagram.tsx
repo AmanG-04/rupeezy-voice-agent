@@ -28,7 +28,7 @@ export default function PipelineDiagram() {
         <div>
           <div className="eyebrow mb-1">How it works</div>
           <div className="text-sm text-rupeezy-fg">
-            Real-time pipeline — every box is wired, no mocks
+            Live conversation and analysis; follow-up delivery is simulated
           </div>
         </div>
         <div className="hidden sm:block text-[10px] font-mono text-rupeezy-fg-faint uppercase tracking-[0.16em]">
@@ -43,33 +43,33 @@ export default function PipelineDiagram() {
       <div className="flex flex-col md:flex-row md:items-stretch gap-2 md:gap-1">
         <Stage
           icon={<Mic size={16} />}
-          title="Web Speech STT"
-          tag="browser-native"
-          detail="8 langs · interim + final · auto-restart"
+          title="Microphone audio"
+          tag="browser PCM stream"
+          detail="English & Hinglish · echo cancellation · interruption"
           tone="ok"
         />
         <Connector />
         <Stage
           icon={<Brain size={16} />}
-          title="Gemini flash-lite"
-          tag="streaming SSE"
-          detail="4-layer prompt: persona · prior call · base · retrieved"
+          title="Gemini Live"
+          tag="bidirectional audio"
+          detail="Your agent persona · business context · native speech"
           tone="accent"
         />
         <Connector />
         <Stage
           icon={<Database size={16} />}
-          title="RAG · Appendix A"
+          title="Business knowledge"
           tag="content-hashed cache"
-          detail="13 sections · gemini-embedding-001 · skip on small talk"
+          detail="Your facts and FAQs · retrieval tools for indexed examples"
           tone="accent"
         />
         <Connector />
         <Stage
           icon={<Volume2 size={16} />}
-          title="Edge-TTS neural"
-          tag="free, no API key"
-          detail="Aria · Neerja · Swara · Pallavi · per-language"
+          title="Spoken response"
+          tag="native audio + transcript"
+          detail="Gemini audio playback · live transcript · classic voice fallback"
           tone="ok"
         />
       </div>
@@ -93,7 +93,7 @@ export default function PipelineDiagram() {
         <Stage
           icon={<ScanSearch size={16} />}
           title="Classifier"
-          tag="7-signal score"
+          tag="6 signals + explicit opt-out"
           detail="intent · engagement · network · objections · cues · deferrals"
           tone="warm"
         />
@@ -102,7 +102,7 @@ export default function PipelineDiagram() {
           icon={<Send size={16} />}
           title="Handoff"
           tag="hot · warm · cold"
-          detail="RM transfer · WhatsApp template · 14-day nurture · DND"
+          detail="Evidence · human review · JSON export · persistent opt-out"
           tone="warm"
         />
       </div>
@@ -112,10 +112,18 @@ export default function PipelineDiagram() {
         <span className="text-[10px] uppercase tracking-[0.16em] text-rupeezy-fg-faint font-mono mr-1">
           Outcomes
         </span>
-        <Chip color="hot">HOT → warm transfer + signup link</Chip>
-        <Chip color="warm">WARM → comparison sheet + callback</Chip>
-        <Chip color="cold">COLD → 14-day nurture</Chip>
-        <Chip color="muted">DND → suppress, no WhatsApp</Chip>
+        <Chip color="hot">
+          HOT · onboarding recommendation
+        </Chip>
+        <Chip color="warm">
+          WARM · information request
+        </Chip>
+        <Chip color="cold">
+          COLD · low priority
+        </Chip>
+        <Chip color="muted">
+          Opt-out · suppress contact
+        </Chip>
       </div>
     </div>
   );

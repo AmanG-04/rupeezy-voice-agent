@@ -25,6 +25,7 @@ import {
   detectObjection,
 } from '../lib/objectionDetect';
 import { shouldAutoEndAfterAssistantReply } from '../lib/callEnding';
+import { loadAgentSettings } from '../lib/agentSettings';
 
 /** Minimal speaker interface — EdgeTtsSpeaker is the only impl now. */
 interface Speaker {
@@ -68,7 +69,7 @@ export default function VoicePage() {
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [lang, setLang] = useState<string>('en-IN');
+  const [lang, setLang] = useState<string>(() => loadAgentSettings().language === 'hinglish' ? 'hi-IN' : loadAgentSettings().language);
   const [partialText, setPartialText] = useState('');
   const [handoff, setHandoff] = useState<HandoffRecord | null>(null);
 
@@ -77,7 +78,7 @@ export default function VoicePage() {
   const isReplyingRef = useRef(false);
   const convIdRef = useRef<string | null>(null);
   const statusRef = useRef<Status>('idle');
-  const langRef = useRef<string>('en-IN');
+  const langRef = useRef<string>(lang);
   const speakerRef = useRef<Speaker | null>(null);
   // AbortController for in-flight streamTurn fetches. Aborted on unmount so
   // a navigation mid-reply doesn't leak a Response stream.
@@ -200,6 +201,7 @@ export default function VoicePage() {
   const finishCall = useCallback(async (endedBy: 'agent' | 'lead' = 'lead') => {
     const cid = convIdRef.current;
     if (!cid) return;
+    turnAbortRef.current?.abort();
     log('ending call:', cid, 'ended_by:', endedBy);
     try {
       recognitionRef.current?.abort();
@@ -226,6 +228,7 @@ export default function VoicePage() {
   }, []);
 
   const dispatchUtterance = useCallback(async (text: string) => {
+    if (isReplyingRef.current) return;
     const cid = convIdRef.current;
     log('dispatchUtterance:', { text, conv_id: cid });
     if (!cid) {
@@ -276,16 +279,7 @@ export default function VoicePage() {
         firstSentenceSpoken = true;
         isReplyingRef.current = true;
         setStatus('speaking');
-      },
-      onSpoken: (cumulative: string) => {
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last && last.role === 'assistant') {
-            next[next.length - 1] = { ...last, text: cumulative };
-          }
-          return next;
-        });
+        statusRef.current = 'speaking';
       },
       onAllDone: () => {
         log('TTS done, returning to listening');
@@ -358,6 +352,13 @@ export default function VoicePage() {
         {
           onToken: (chunk) => {
             accumulated += chunk;
+            if (controller.signal.aborted) return;
+            setMessages((previous) => {
+              const next = [...previous];
+              const last = next[next.length - 1];
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, text: accumulated };
+              return next;
+            });
             // Don't write tokens into the bubble — let the speaker drive the
             // visible text via onSpoken so audio + text stay in sync.
             speaker.feed(chunk);
@@ -394,6 +395,7 @@ export default function VoicePage() {
       log('streamTurn threw:', e);
       setErrorMsg((e as Error).message);
     } finally {
+      if (controller.signal.aborted) return;
       autoEndAfterSpeechRef.current =
         statusRef.current !== 'error' &&
         shouldAutoEndAfterAssistantReply(accumulated);
@@ -401,7 +403,7 @@ export default function VoicePage() {
         const next = [...prev];
         const last = next[next.length - 1];
         if (last && last.role === 'assistant' && last.pending) {
-          next[next.length - 1] = { ...last, pending: false };
+            next[next.length - 1] = { ...last, text: accumulated, pending: false };
         }
         return next;
       });
@@ -569,12 +571,17 @@ export default function VoicePage() {
     }
     try {
       const r = await createConversation();
+      if (!mountedRef.current) {
+        endConversationBeacon(r.conv_id);
+        return;
+      }
       log('conversation created:', r.conv_id);
       setConvId(r.conv_id);
       convIdRef.current = r.conv_id;
       setStatus('speaking');
       statusRef.current = 'speaking';
       const opener = await startConversationOpener(r.conv_id, { lang: langRef.current });
+      if (!mountedRef.current) return;
       setMessages([{ ...opener }]);
 
       const speaker = new EdgeTtsSpeaker({
@@ -585,11 +592,8 @@ export default function VoicePage() {
           setStatus('speaking');
           statusRef.current = 'speaking';
         },
-        onSpoken: (cumulative) => {
-          setMessages([{ ...opener, text: cumulative }]);
-        },
         onAllDone: () => {
-          if (!mountedRef.current || statusRef.current === 'ended') return;
+          if (!mountedRef.current || statusRef.current === 'ended' || statusRef.current === 'scoring') return;
           setStatus('listening');
           statusRef.current = 'listening';
           startRecognition();
@@ -753,6 +757,22 @@ export default function VoicePage() {
             )}
           </div>
 
+          {(status === 'thinking' || status === 'speaking') && (
+            <button type="button" className="mt-4 px-4 py-2 rounded-md border border-rupeezy-border text-sm" onClick={() => {
+              turnAbortRef.current?.abort();
+              speakerRef.current?.cancel();
+              cancelSpeech();
+              autoEndAfterSpeechRef.current = false;
+              isReplyingRef.current = false;
+              setMessages((previous) => previous.map((message) => ({ ...message, pending: false })));
+              setStatus('listening');
+              statusRef.current = 'listening';
+              startRecognitionRef.current?.();
+            }}>
+              Interrupt and speak
+            </button>
+          )}
+
           {partialText && (
             <div className="mt-4 px-4 py-2.5 rounded-lg glass border border-rupeezy-border-subtle text-xs text-rupeezy-fg-muted italic max-w-md text-center">
               "{partialText}"
@@ -766,6 +786,7 @@ export default function VoicePage() {
             <div className="mt-6 flex gap-2 max-w-md w-full">
               <input
                 type="text"
+                aria-label="Type your message instead of speaking"
                 value={manualText}
                 onChange={(e) => setManualText(e.target.value)}
                 onKeyDown={(e) => {

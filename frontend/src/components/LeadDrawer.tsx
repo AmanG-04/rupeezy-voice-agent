@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Phone, MessageSquare, Calendar, Send } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import {
   type LeadDetail,
   type WhatsappLog,
   getLeadDetail,
   getWhatsappLogs,
+  reviewLead,
 } from '../lib/api';
 import HandoffPanel from './HandoffPanel';
+import { useDialog } from '../lib/useDialog';
 
 /**
  * Slide-in drawer showing the full handoff + transcript for one lead.
@@ -26,6 +28,12 @@ export default function LeadDrawer({
   const [whatsappLogs, setWhatsappLogs] = useState<WhatsappLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [highlightTurn, setHighlightTurn] = useState<number | null>(null);
+  const [reviewReason, setReviewReason] = useState('');
+  const [reviewBucket, setReviewBucket] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +42,13 @@ export default function LeadDrawer({
     setError(null);
     getLeadDetail(convId)
       .then((d) => {
-        if (!cancelled) setDetail(d);
+        if (!cancelled) {
+          setDetail(d);
+          setReviewBucket(d.handoff.review?.bucket || '');
+          setReviewReason(d.handoff.review?.reason || '');
+          setNotes(d.handoff.review?.notes || '');
+          setSaveMessage('');
+        }
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message);
@@ -81,27 +95,20 @@ export default function LeadDrawer({
 
   return (
     <Backdrop onClose={onClose}>
-      {/* CTA bar */}
+      {/* Transcript controls */}
       <div className="px-7 py-3.5 border-b border-rupeezy-border-subtle bg-rupeezy-elevated/95 backdrop-blur-xl sticky top-[72px] z-10">
         <div className="flex flex-wrap items-center gap-2">
-          <CtaButton
-            icon={<Phone size={13} />}
-            label="Call now"
-            disabled
-            tooltip="Wired in Phase 6 — voice loop"
-          />
-          <CtaButton
-            icon={<Send size={13} />}
-            label="Send WhatsApp"
-            disabled
-            tooltip="Wired in Phase 8 — WhatsApp"
-          />
-          <CtaButton
-            icon={<Calendar size={13} />}
-            label="Schedule callback"
-            disabled
-            tooltip="Out of demo scope; would create a CRM task"
-          />
+          <button type="button" onClick={() => {
+            const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `handoff-${convId}.json`;
+            anchor.click();
+            URL.revokeObjectURL(url);
+          }} className="px-3 py-1.5 rounded-md border border-rupeezy-border text-xs">
+            Export handoff JSON
+          </button>
           <button
             type="button"
             onClick={() => setShowTranscript((v) => !v)}
@@ -122,11 +129,12 @@ export default function LeadDrawer({
             {detail.transcript.map((m, i) => (
               <div
                 key={i}
+                id={`lead-turn-${i}`}
                 className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
                   className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
-                    m.role === 'user'
+                    highlightTurn === i ? 'bg-rupeezy-accent-faint border-2 border-rupeezy-accent' : m.role === 'user'
                       ? 'bg-rupeezy-accent-faint text-rupeezy-fg rounded-br-sm border border-rupeezy-accent/20'
                       : 'bg-rupeezy-card text-rupeezy-fg-muted rounded-bl-sm border border-rupeezy-border'
                   }`}
@@ -143,7 +151,69 @@ export default function LeadDrawer({
       )}
 
       {/* Inline handoff payload — same component as the chat post-call panel */}
-      <InlineHandoff handoff={detail.handoff} />
+      <InlineHandoff handoff={detail.handoff} onEvidence={(turn) => {
+        setShowTranscript(true);
+        setHighlightTurn(turn);
+        setTimeout(() => document.getElementById(`lead-turn-${turn}`)?.scrollIntoView({ block: 'center' }), 0);
+      }} />
+
+      <form className="px-7 py-5 space-y-3 border-t border-rupeezy-border" onSubmit={async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setSaveMessage('');
+        try {
+          const handoff = await reviewLead(convId, {
+            bucket: (reviewBucket || null) as 'hot' | 'warm' | 'cold' | null,
+            reason: reviewReason,
+            notes,
+          });
+          setDetail((previous) => previous ? { ...previous, handoff } : previous);
+          setSaveMessage('Review saved. The original AI classification is preserved.');
+        } catch (error) {
+          setSaveMessage((error as Error).message);
+        } finally { setSaving(false); }
+      }}>
+        <h2 className="text-lg">
+          Human review
+        </h2>
+        <label className="block text-sm space-y-2">
+          <span>
+            Qualification correction
+          </span>
+          <select value={reviewBucket} onChange={(event) => setReviewBucket(event.target.value)} className="w-full rounded-md bg-rupeezy-ink border border-rupeezy-border px-3 py-2">
+            <option value="">
+              Keep AI recommendation
+            </option>
+            <option value="hot">
+              Hot
+            </option>
+            <option value="warm">
+              Warm
+            </option>
+            <option value="cold">
+              Cold
+            </option>
+          </select>
+        </label>
+        <label className="block text-sm space-y-2">
+          <span>
+            Reason for correction
+          </span>
+          <input required={!!reviewBucket} maxLength={500} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} className="w-full rounded-md bg-rupeezy-ink border border-rupeezy-border px-3 py-2" />
+        </label>
+        <label className="block text-sm space-y-2">
+          <span>
+            Review notes (demo data only)
+          </span>
+          <textarea maxLength={2000} rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} className="w-full rounded-md bg-rupeezy-ink border border-rupeezy-border px-3 py-2" />
+        </label>
+        <button type="submit" disabled={saving} className="px-4 py-2 rounded-md bg-rupeezy-accent text-white disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save review'}
+        </button>
+        <p role="status" className="text-xs text-rupeezy-fg-muted">
+          {saveMessage}
+        </p>
+      </form>
 
       {/* WhatsApp dispatch log */}
       <WhatsappSection logs={whatsappLogs} />
@@ -158,19 +228,27 @@ function Backdrop({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  const dialogRef = useDialog(onClose);
   return (
     <div
       className="fixed inset-0 z-40 bg-rupeezy-ink/80 backdrop-blur-sm flex justify-end"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Lead analysis and human review"
+        tabIndex={-1}
         className="w-full sm:w-[640px] glass-elevated overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-7 py-5 border-b border-rupeezy-border-subtle flex items-center justify-between sticky top-0 bg-rupeezy-elevated/95 backdrop-blur-xl z-20">
           <div>
             <div className="eyebrow mb-0.5">Lead drilldown</div>
-            <div className="text-sm text-rupeezy-fg">RM context view</div>
+            <div className="text-sm text-rupeezy-fg">
+              Conversation review
+            </div>
           </div>
           <button
             type="button"
@@ -187,41 +265,14 @@ function Backdrop({
   );
 }
 
-function CtaButton({
-  icon,
-  label,
-  disabled,
-  tooltip,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  disabled?: boolean;
-  tooltip?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={tooltip}
-      className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-rupeezy-border text-rupeezy-fg-muted hover:border-rupeezy-accent/40 hover:text-rupeezy-accent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-rupeezy-border disabled:hover:text-rupeezy-fg-muted transition-colors"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
 /**
  * Render the shared HandoffPanel inline (it uses position:fixed by default,
  * which we override here so it flows in document order inside the drawer).
  */
-function InlineHandoff({ handoff }: { handoff: LeadDetail['handoff'] }) {
+function InlineHandoff({ handoff, onEvidence }: { handoff: LeadDetail['handoff']; onEvidence: (turn: number) => void }) {
   return (
     <div className="[&>aside]:!relative [&>aside]:!inset-auto [&>aside]:!w-full [&>aside]:!shadow-none [&>aside]:!border-0 [&>aside]:!z-auto [&>aside]:!bg-transparent [&>aside]:!backdrop-blur-none [&_.sticky]:!relative">
-      <HandoffPanel handoff={handoff} />
+      <HandoffPanel handoff={handoff} onEvidence={onEvidence} />
     </div>
   );
 }

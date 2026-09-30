@@ -23,6 +23,19 @@
     letter-spacing: theme('letterSpacing.tightish');
   }
 
+  :focus-visible {
+    outline: 2px solid theme('colors.rupeezy.accent');
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   /* Headlines default to the serif treatment */
   h1, h2, h3 {
     font-family: theme('fontFamily.serif');

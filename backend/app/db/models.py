@@ -38,6 +38,24 @@ class Base(DeclarativeBase):
     pass
 
 
+class DemoSession(Base):
+    """Additive table keeps existing Supabase schemas compatible."""
+
+    __tablename__ = "demo_sessions"
+
+    conversation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class DemoJob(Base):
+    __tablename__ = "demo_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class Lead(Base):
     __tablename__ = "leads"
 

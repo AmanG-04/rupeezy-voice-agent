@@ -1,5 +1,23 @@
 # Rupeezy AI Voice Agent
 
+## Configurable portfolio demo
+
+Native audio is now available at `/voice`, using Gemini 3.8 Live or Gemini 3.1 Flash Live Preview. See [LIVE_VOICE.md](LIVE_VOICE.md) for setup, streaming behavior, and verification. The classic voice pipeline remains at `/voice/classic`.
+
+The current upgrade focuses on English/Hinglish browser conversations with Rupeezy as a sample business. Try `/sample` for an interactive authored tour that makes no API calls, or `/configure` to supply fictional business context for a live conversation. Handoffs include transcript evidence and editable human review notes. No real telephony or callbacks are performed.
+
+See [UPGRADE_NOTES.md](UPGRADE_NOTES.md) for the current implementation, free-tier configuration, verification, and remaining work. The original hackathon documentation below describes the earlier build and includes historical measurements and feature plans; it is not a current benchmark report.
+
+### Local checks
+
+```powershell
+cd backend
+python -m pytest -q
+python -m ruff check app tests
+```
+
+Ordinary tests are offline. External API tests require explicit `--live` opt-in and consume quota. The evaluation development set and offline metric runner are documented in [evaluation/README.md](evaluation/README.md).
+
 > Multilingual AI voice agent that pitches Rupeezy's Authorized Person partner program, qualifies leads as **Hot / Warm / Cold**, and hands them off to RMs with full conversation context — calls every lead in their language, within minutes, no after-hours gap.
 >
 > Built for **PanIIT AI for Bharat — Theme 7** (Apr–May 2026).

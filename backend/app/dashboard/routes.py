@@ -20,6 +20,7 @@ import io
 import logging
 import re
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -31,6 +32,7 @@ from app.agent.dialer import (
     enqueue,
     get_queue,
     is_dialing,
+    reserve_dial,
 )
 from app.db.repo import (
     delete_conversation,
@@ -43,7 +45,7 @@ from app.db.repo import (
     list_logs_for_conversation,
     upsert_lead,
 )
-from app.scoring.schemas import HandoffRecord
+from app.scoring.schemas import HandoffRecord, Review
 
 log = logging.getLogger("rupeezy.dashboard")
 
@@ -70,6 +72,8 @@ class LeadRow(BaseModel):
     next_action: str
     summary_short: str
     language_used: str
+    name: str = "Unknown"
+    reviewed_bucket: str | None = None
 
 
 class LeadDetail(BaseModel):
@@ -78,19 +82,20 @@ class LeadDetail(BaseModel):
 
 
 @router.get("/funnel", response_model=FunnelResponse)
-async def funnel() -> FunnelResponse:
+def funnel() -> FunnelResponse:
     return FunnelResponse(**funnel_counts())
 
 
 @router.get("/leads", response_model=list[LeadRow])
-async def leads(bucket: str | None = None, limit: int = 200) -> list[LeadRow]:
-    rows = list_handoff_rows(bucket=bucket, limit=limit)
+def leads(bucket: str | None = None, limit: int = 200) -> list[LeadRow]:
+    rows = list_handoff_rows(bucket=bucket, limit=max(1, min(limit, 200)))
     out: list[LeadRow] = []
     for r in rows:
         # We need started_at + duration from the conversation join.
         conv = r.conversation
         # `language_used` lives inside the JSON payload (handoff.contact.language_used).
         # Parse only what we need rather than hydrate the full HandoffRecord.
+        handoff = None
         try:
             handoff = HandoffRecord.model_validate_json(r.payload_json)
             language_used = handoff.contact.language_used
@@ -106,6 +111,8 @@ async def leads(bucket: str | None = None, limit: int = 200) -> list[LeadRow]:
                 next_action=r.next_action,
                 summary_short=r.summary_short,
                 language_used=language_used,
+                name=handoff.contact.name if handoff else "Unknown",
+                reviewed_bucket=handoff.review.bucket if handoff else None,
             )
         )
     return out
@@ -175,7 +182,7 @@ def _normalize_scenario(raw: str | None) -> str:
 
 
 @router.post("/leads/batch", response_model=BatchUploadResponse)
-async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadResponse:
+async def upload_leads_batch(file: Annotated[UploadFile, File()]) -> BatchUploadResponse:
     """Parse a CSV upload, dedupe by phone, queue new leads for the dialer.
 
     CSV format (header row required, case-insensitive column names):
@@ -184,7 +191,9 @@ async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadRespons
     `name` and `phone` are required. `language_pref` defaults to 'english'
     when missing or unrecognised. `source` is accepted but currently unused.
     """
-    raw = await file.read()
+    raw = await file.read(1_000_001)
+    if len(raw) > 1_000_000:
+        raise HTTPException(413, "Demo uploads are limited to 1 MB")
     try:
         text = raw.decode("utf-8-sig")  # strip a BOM if Excel saved it
     except UnicodeDecodeError:
@@ -211,6 +220,9 @@ async def upload_leads_batch(file: UploadFile = File(...)) -> BatchUploadRespons
         return ""
 
     for line_no, row in enumerate(reader, start=2):  # header is line 1
+        if line_no > 102:
+            errors.append("Demo uploads are limited to 100 leads")
+            break
         name = _get(row, "name")
         phone = _normalize_phone(_get(row, "phone"))
         language_pref = _normalize_lang(_get(row, "language_pref"))
@@ -304,6 +316,8 @@ async def leads_dial_next() -> dict:
 
     if _next_queued() is None:
         return {"idle": True}
+    if not reserve_dial():
+        return {"busy": True}
     # Fire-and-forget. Errors are logged inside dial_next; we don't
     # await the result. The status flag (is_dialing) reflects progress.
     import asyncio as _asyncio
@@ -408,7 +422,7 @@ class WhatsappLogDTO(BaseModel):
 
 
 @router.get("/leads/{conv_id}/whatsapp", response_model=list[WhatsappLogDTO])
-async def lead_whatsapp_logs(conv_id: str) -> list[WhatsappLogDTO]:
+def lead_whatsapp_logs(conv_id: str) -> list[WhatsappLogDTO]:
     """Phase 8 — every WhatsApp message dispatched for this conversation.
 
     Empty list (not 404) when none exist, so the frontend can render a
@@ -429,7 +443,7 @@ async def lead_whatsapp_logs(conv_id: str) -> list[WhatsappLogDTO]:
 
 
 @router.get("/leads/{conv_id}", response_model=LeadDetail)
-async def lead_detail(conv_id: str) -> LeadDetail:
+def lead_detail(conv_id: str) -> LeadDetail:
     row = get_handoff_row(conv_id)
     if row is None:
         raise HTTPException(404, f"no handoff for {conv_id}")
@@ -450,11 +464,29 @@ async def lead_detail(conv_id: str) -> LeadDetail:
     return LeadDetail(handoff=handoff, transcript=transcript)
 
 
+@router.patch("/leads/{conv_id}/review", response_model=HandoffRecord)
+async def review_lead(conv_id: str, body: Review) -> HandoffRecord:
+    import asyncio
+    from app.agent.locks import conversation_lock
+    from app.db.repo import persist_handoff
+
+    async with conversation_lock(conv_id):
+        row = await asyncio.to_thread(get_handoff_row, conv_id)
+        if row is None:
+            raise HTTPException(404, "Handoff not found")
+        if body.bucket and not body.reason.strip():
+            raise HTTPException(422, "A qualification correction requires a reason")
+        handoff = HandoffRecord.model_validate_json(row.payload_json)
+        handoff.review = body
+        await asyncio.to_thread(persist_handoff, handoff)
+        return handoff
+
+
 # ---------- Deletes (RM dashboard cleanup) ----------
 
 
 @router.delete("/leads/{conv_id}")
-async def delete_lead_endpoint(conv_id: str) -> dict:
+def delete_lead_endpoint(conv_id: str) -> dict:
     """Delete a single conversation by id. Cascades to messages, handoff,
     and whatsapp_log. Returns the deleted count (0 or 1)."""
     deleted = delete_conversation(conv_id)
@@ -465,7 +497,7 @@ async def delete_lead_endpoint(conv_id: str) -> dict:
 
 
 @router.delete("/leads/bucket/{bucket}")
-async def delete_bucket_endpoint(bucket: str) -> dict:
+def delete_bucket_endpoint(bucket: str) -> dict:
     """Delete every conversation whose handoff is in the given bucket
     (hot / warm / cold). Returns the number of conversations removed."""
     try:

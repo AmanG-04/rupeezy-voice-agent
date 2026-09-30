@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict
+from dataclasses import dataclass
 from typing import Literal
 
 log = logging.getLogger("rupeezy.agent.dialer")
@@ -89,7 +91,28 @@ def get_script(scenario: str | None) -> tuple[str, ...]:
 
 def enqueue(lead: QueuedLead) -> None:
     """Push a fresh QueuedLead onto the queue."""
+    _persist_job(lead)
     _queue.append(lead)
+
+
+def _persist_job(lead: QueuedLead) -> None:
+    from app.db.repo import save_demo_job
+
+    save_demo_job(lead.lead_id, json.dumps(asdict(lead)), lead.status)
+
+
+def restore_queue() -> None:
+    """Interrupted simulations become failed, never silently redialed."""
+    from app.db.repo import load_demo_jobs
+
+    _queue.clear()
+    for row in load_demo_jobs():
+        lead = QueuedLead(**json.loads(row.payload_json))
+        if lead.status == "contacting":
+            lead.status = "failed"
+            lead.error = "Backend restarted during simulation. Upload a fresh demo lead to retry."
+            _persist_job(lead)
+        _queue.append(lead)
 
 
 def get_queue() -> list[QueuedLead]:
@@ -120,6 +143,15 @@ def is_dialing() -> bool:
     return _dialing
 
 
+def reserve_dial() -> bool:
+    """Reserve before task scheduling, so concurrent HTTP requests cannot double-start."""
+    global _dialing
+    if _dialing or _next_queued() is None:
+        return False
+    _dialing = True
+    return True
+
+
 async def dial_next() -> dict | None:
     """Process the next queued lead end-to-end.
 
@@ -130,6 +162,7 @@ async def dial_next() -> dict | None:
     global _dialing
     lead = _next_queued()
     if lead is None:
+        _dialing = False
         return None
 
     # Local imports avoid a circular dependency between `app.agent.dialer`
@@ -139,17 +172,26 @@ async def dial_next() -> dict | None:
     from app.scoring.handoff import build_handoff
 
     lead.status = "contacting"
+    _persist_job(lead)
     _dialing = True
 
     try:
         store = get_store()
-        conv = store.create()
+        from app.db.repo import get_lead
+
+        profile = await asyncio.to_thread(get_lead, lead.lead_id)
+        if profile and profile.dnd:
+            lead.status = "failed"
+            lead.error = "Lead opted out; simulation suppressed."
+            return {"lead_id": lead.lead_id, "status": "suppressed"}
+        conv = store.create_for_lead(lead.lead_id)
+        conv.channel = "batch"
         lead.conv_id = conv.conv_id
 
         for user_text in get_script(lead.scenario):
             # Drain the stream — we don't need the per-token output here, only
             # the post-turn conversation state.
-            async for _piece in stream_user_turn(conv.conv_id, user_text):
+            async for _piece in stream_user_turn(conv.conv_id, user_text, lang_hint=lead.language_pref):
                 pass
 
         # Mark the call ended so build_handoff has clean call meta.
@@ -159,11 +201,11 @@ async def dial_next() -> dict | None:
 
         # Best-effort persistence (matches /end path semantics).
         try:
-            persist_conversation(conv, channel="batch")
+            await asyncio.to_thread(persist_conversation, conv, channel="batch")
         except Exception:  # noqa: BLE001
             log.exception("dialer: failed to persist conversation %s", conv.conv_id)
         try:
-            persist_handoff(handoff)
+            await asyncio.to_thread(persist_handoff, handoff)
         except Exception:  # noqa: BLE001
             log.exception("dialer: failed to persist handoff for %s", conv.conv_id)
 
@@ -208,6 +250,7 @@ async def dial_next() -> dict | None:
             "error": lead.error,
         }
     finally:
+        await asyncio.to_thread(_persist_job, lead)
         _dialing = False
 
 

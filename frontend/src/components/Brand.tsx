@@ -21,14 +21,14 @@ export function Brand({
         className={`${dims.box} rounded-md bg-rupeezy-card border border-rupeezy-border flex items-center justify-center font-serif ${dims.text} text-rupeezy-fg shadow-glass-inset`}
         aria-hidden
       >
-        R
+        V
       </div>
       <div className="flex flex-col leading-tight">
         <span className={`font-serif ${dims.word} text-rupeezy-fg tracking-tight`}>
-          Rupeezy
+          Voice Studio
         </span>
         <span className="text-[10px] uppercase tracking-[0.18em] text-rupeezy-fg-faint">
-          Partner Agent
+          AI calling agents
         </span>
       </div>
     </div>

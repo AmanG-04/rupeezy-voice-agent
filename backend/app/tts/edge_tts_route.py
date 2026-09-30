@@ -54,8 +54,8 @@ class SynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
     lang: str = Field(default="en-IN")
     # Edge-TTS prosody knobs. Strings like "+10%", "-5%", "0%".
-    rate: str = Field(default="+0%")
-    pitch: str = Field(default="+0Hz")
+    rate: str = Field(default="+0%", pattern=r"^[+-]\d{1,3}%$")
+    pitch: str = Field(default="+0Hz", pattern=r"^[+-]\d{1,3}Hz$")
 
 
 def _voice_for(lang: str) -> str:

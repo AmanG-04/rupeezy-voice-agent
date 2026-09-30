@@ -19,6 +19,8 @@ from app.db.models import (
     Lead,
     Message,
     WhatsappLog,
+    DemoSession,
+    DemoJob,
 )
 from app.scoring.schemas import HandoffRecord
 
@@ -74,6 +76,33 @@ def find_lead_by_phone(phone: str) -> Lead | None:
         return s.query(Lead).filter(Lead.phone == phone).one_or_none()
 
 
+def get_lead(lead_id: str) -> Lead | None:
+    with session_scope() as s:
+        return s.get(Lead, lead_id)
+
+
+def save_session_settings(conversation_id: str, settings_json: str) -> None:
+    with session_scope() as s:
+        s.merge(DemoSession(conversation_id=conversation_id, settings_json=settings_json))
+
+
+def load_session_settings(conversation_id: str) -> str | None:
+    with session_scope() as s:
+        row = s.get(DemoSession, conversation_id)
+        return row.settings_json if row else None
+
+
+def save_demo_job(job_id: str, payload_json: str, status: str) -> None:
+    with session_scope() as s:
+        s.merge(DemoJob(id=job_id, payload_json=payload_json, status=status,
+                        updated_at=datetime.now(timezone.utc)))
+
+
+def load_demo_jobs() -> list[DemoJob]:
+    with session_scope() as s:
+        return list(s.scalars(select(DemoJob).order_by(DemoJob.updated_at)))
+
+
 # ---------- Conversation + messages ----------
 
 
@@ -121,6 +150,7 @@ def persist_conversation(conv: InMemConversation, *, channel: str = "text") -> N
             existing = row
         else:
             existing.ended_at = ended_at
+            existing.channel = channel
             existing.duration_sec = duration_sec
             existing.language_used = conv.language or existing.language_used
             existing.ended_by = conv.ended_by or existing.ended_by
@@ -150,13 +180,13 @@ def persist_handoff(handoff: HandoffRecord) -> None:
     with session_scope() as s:
         existing = (
             s.query(HandoffRow)
-            .filter(HandoffRow.conversation_id == handoff.lead_id)
+            .filter(HandoffRow.conversation_id == (handoff.conversation_id or handoff.lead_id))
             .one_or_none()
         )
         if existing is None:
             s.add(
                 HandoffRow(
-                    conversation_id=handoff.lead_id,
+                    conversation_id=handoff.conversation_id or handoff.lead_id,
                     bucket=handoff.classification.bucket,
                     confidence=handoff.classification.confidence,
                     summary_short=handoff.summary_short,
@@ -193,7 +223,7 @@ def list_conversation_rows(
     with session_scope() as s:
         stmt = (
             select(ConversationRow)
-            .options(selectinload(ConversationRow.handoff))
+            .options(selectinload(ConversationRow.handoff), selectinload(ConversationRow.messages))
             .order_by(ConversationRow.started_at.desc())
             .limit(limit)
         )
@@ -282,16 +312,7 @@ def list_logs_for_conversation(conv_id: str) -> list[WhatsappLog]:
 
 
 def funnel_counts() -> dict[str, int]:
-    """Returns counts for the conversion funnel.
-
-    Implemented as TWO aggregate queries (one per table) instead of five
-    sequential `.count()` calls. On Supabase's free-tier transaction
-    pooler, sequential count queries consume one connection per
-    round-trip and starve other concurrent dashboard polls under burst
-    load — that produces intermittent 500 errors when the connection
-    pool is briefly empty. Two aggregate queries cuts the round-trip
-    count by 60% and keeps the connection held for the minimum time.
-    """
+    """Session totals, two-or-more-lead-turn engagement, and AI bucket totals."""
     from sqlalchemy import case, func
 
     with session_scope() as s:
@@ -305,6 +326,13 @@ def funnel_counts() -> dict[str, int]:
             )
         ).one()
 
+        engaged = s.execute(
+            select(Message.conversation_id)
+            .where(Message.role == "user", Message.text != "")
+            .group_by(Message.conversation_id)
+            .having(func.count(Message.id) >= 2)
+        ).all()
+
         # One row, three values: hot/warm/cold counts via FILTER.
         h_row = s.execute(
             select(
@@ -315,7 +343,7 @@ def funnel_counts() -> dict[str, int]:
         ).one()
 
     contacted = int(conv_row.contacted or 0)
-    engaged = int(conv_row.engaged or 0)
+    engaged = len(engaged)
     hot = int(h_row.hot or 0)
     warm = int(h_row.warm or 0)
     cold = int(h_row.cold or 0)

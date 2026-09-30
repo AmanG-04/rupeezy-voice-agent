@@ -7,9 +7,9 @@ import type { Funnel } from '../lib/api';
  */
 export default function FunnelHeader({ funnel }: { funnel: Funnel }) {
   const stages = [
-    { key: 'contacted', label: 'Contacted', value: funnel.contacted },
-    { key: 'engaged', label: 'Engaged', sub: 'over 30s', value: funnel.engaged },
-    { key: 'qualified', label: 'Qualified', sub: 'hot + warm', value: funnel.qualified },
+    { key: 'contacted', label: 'Sessions', value: funnel.contacted },
+    { key: 'engaged', label: 'Engaged', sub: '2+ lead turns', value: funnel.engaged },
+    { key: 'qualified', label: 'Qualified', sub: 'AI hot + warm', value: funnel.qualified },
   ];
   const max = Math.max(funnel.contacted, 1);
 
@@ -24,13 +24,10 @@ export default function FunnelHeader({ funnel }: { funnel: Funnel }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-px bg-rupeezy-border rounded-xl overflow-hidden mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-rupeezy-border rounded-xl overflow-hidden mb-6">
         {stages.map((s, idx) => {
           const pct = (s.value / max) * 100;
-          const dropoff =
-            idx > 0
-              ? Math.round((s.value / Math.max(stages[idx - 1].value, 1)) * 100)
-              : null;
+          const dropoff = idx > 0 ? Math.round((s.value / max) * 100) : null;
           return (
             <div key={s.key} className="bg-rupeezy-card p-5">
               <div className="flex items-baseline justify-between mb-2">
@@ -46,7 +43,7 @@ export default function FunnelHeader({ funnel }: { funnel: Funnel }) {
                 </div>
                 {dropoff !== null && (
                   <span className="text-[10px] text-rupeezy-fg-faint font-mono uppercase tracking-wider">
-                    {dropoff}% of prev
+                    {dropoff}% of sessions
                   </span>
                 )}
               </div>

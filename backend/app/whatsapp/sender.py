@@ -147,7 +147,7 @@ class MockSender(WhatsappSender):
             # dashboard doesn't get a noisy "skipped" entry next to a
             # genuinely-suppressed lead.
             return WhatsappLog(
-                conversation_id=handoff.lead_id,
+                conversation_id=handoff.conversation_id or handoff.lead_id,
                 template_id="skipped",
                 body="",
                 to_phone=handoff.contact.phone or "",
@@ -159,7 +159,7 @@ class MockSender(WhatsappSender):
         from app.db.repo import persist_whatsapp_log
 
         row = WhatsappLog(
-            conversation_id=handoff.lead_id,
+            conversation_id=handoff.conversation_id or handoff.lead_id,
             template_id=template_id,
             body=body,
             to_phone=handoff.contact.phone or "",

@@ -5,6 +5,8 @@ import type {
   ObjectionRaised,
   SignalBreakdown,
 } from '../lib/api';
+import { useDialog } from '../lib/useDialog';
+import { useCallback } from 'react';
 
 const BUCKET_STYLE: Record<
   Bucket,
@@ -34,10 +36,10 @@ const BUCKET_STYLE: Record<
 };
 
 const NEXT_ACTION_LABEL: Record<NextActionType, string> = {
-  warm_transfer: 'Warm transfer to RM',
+  warm_transfer: 'Recommended: human handoff',
   rm_callback: 'Schedule RM callback',
-  whatsapp_link_sent: 'WhatsApp signup link sent',
-  nurture_sequence: '14-day nurture sequence',
+  whatsapp_link_sent: 'Recommended: share information (mock preview)',
+  nurture_sequence: 'Recommended: low-priority follow-up',
   dnd: 'Add to internal DND',
 };
 
@@ -64,10 +66,14 @@ const SIGNAL_LABEL: Record<keyof SignalBreakdown, string> = {
 export default function HandoffPanel({
   handoff,
   onClose,
+  onEvidence,
 }: {
   handoff: HandoffRecord;
   onClose?: () => void;
+  onEvidence?: (turn: number) => void;
 }) {
+  const close = useCallback(() => onClose?.(), [onClose]);
+  const dialogRef = useDialog<HTMLElement>(close, !!onClose);
   const {
     classification,
     discovery,
@@ -80,12 +86,12 @@ export default function HandoffPanel({
   const bs = BUCKET_STYLE[classification.bucket];
 
   return (
-    <aside className="fixed inset-y-0 right-0 w-full sm:w-[480px] glass-elevated overflow-y-auto z-40">
+    <aside ref={dialogRef} role={onClose ? 'dialog' : undefined} aria-modal={onClose ? true : undefined} aria-label="Post-call handoff" tabIndex={-1} className="fixed inset-y-0 right-0 w-full sm:w-[480px] glass-elevated overflow-y-auto z-40">
       <div className="px-7 py-5 border-b border-rupeezy-border-subtle flex items-center justify-between sticky top-0 bg-rupeezy-elevated/95 backdrop-blur-xl z-10">
         <div>
           <div className="eyebrow mb-0.5">Post-call handoff</div>
           <div className="text-xs font-mono text-rupeezy-fg-faint">
-            conv {handoff.lead_id}
+            conv {handoff.conversation_id || handoff.lead_id}
           </div>
         </div>
         {onClose && (
@@ -111,12 +117,15 @@ export default function HandoffPanel({
               {bs.label}
             </span>
             <span className="text-xs text-rupeezy-fg-faint font-mono ml-auto tabular-nums">
-              {(classification.confidence * 100).toFixed(0)}% confidence
+              {(classification.confidence * 100).toFixed(0)}% model score
             </span>
           </div>
           <div className="mt-3 text-sm text-rupeezy-fg leading-relaxed">
             {classification.rationale}
           </div>
+          <p className="mt-2 text-xs text-rupeezy-fg-muted">
+            Model-reported certainty; not a calibrated probability.
+          </p>
         </div>
 
         {/* Summary */}
@@ -125,6 +134,28 @@ export default function HandoffPanel({
             {summary_short}
           </div>
         </Section>
+
+        {!!handoff.evidence?.length && (
+          <Section title="Transcript evidence">
+            <div className="space-y-3">
+              {handoff.evidence.map((evidence, index) => (
+                <blockquote key={index} className="border-l-2 border-rupeezy-accent pl-3">
+                  <div className="text-xs text-rupeezy-accent mb-1">
+                    {evidence.field.replaceAll('_', ' ')} · lead turn {evidence.turn}
+                  </div>
+                  <p className="text-sm leading-relaxed">
+                    “{evidence.quote}”
+                  </p>
+                  {onEvidence && (
+                    <button type="button" onClick={() => onEvidence(evidence.turn)} className="mt-2 text-xs text-rupeezy-accent underline">
+                      Show this transcript turn
+                    </button>
+                  )}
+                </blockquote>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* Next action */}
         <Section title="Next action">

@@ -53,6 +53,7 @@ export class EdgeTtsSpeaker {
   private ctx: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
   private revealTimers: number[] = [];
+  private controllers = new Set<AbortController>();
 
   constructor(opts: SpeakerOptions) {
     this.opts = opts;
@@ -115,6 +116,9 @@ export class EdgeTtsSpeaker {
 
   cancel(): void {
     this.cancelled = true;
+    this.controllers.forEach((controller) => controller.abort());
+    this.controllers.clear();
+    window.speechSynthesis?.cancel();
     this.queue = [];
     this.buffer = '';
     this.revealTimers.forEach((t) => clearTimeout(t));
@@ -128,6 +132,10 @@ export class EdgeTtsSpeaker {
       this.currentSource = null;
     }
     this.speaking = false;
+    if (this.ctx) {
+      void this.ctx.close().catch(() => {});
+      this.ctx = null;
+    }
   }
 
   private enqueueSentence(sentence: string): void {
@@ -151,10 +159,13 @@ export class EdgeTtsSpeaker {
     let lastErr: Error | null = null;
 
     for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+      if (this.cancelled) return null;
       if (backoffMs[attempt] > 0) {
         await new Promise((s) => setTimeout(s, backoffMs[attempt]));
       }
       const ctrl = new AbortController();
+      if (this.cancelled) return null;
+      this.controllers.add(ctrl);
       const timeoutId = setTimeout(() => ctrl.abort(), 12000);
       try {
         const resp = await fetch(api('/api/tts/synthesize'), {
@@ -168,14 +179,17 @@ export class EdgeTtsSpeaker {
           }),
           signal: ctrl.signal,
         });
-        clearTimeout(timeoutId);
         if (!resp.ok) throw new Error(`tts ${resp.status}`);
         const buf = await resp.arrayBuffer();
+        if (this.cancelled) return null;
         return await this.getCtx().decodeAudioData(buf);
       } catch (e) {
         clearTimeout(timeoutId);
         lastErr = e as Error;
         if (this.cancelled) return null;
+      } finally {
+        clearTimeout(timeoutId);
+        this.controllers.delete(ctrl);
       }
     }
 
@@ -231,13 +245,12 @@ export class EdgeTtsSpeaker {
       return;
     }
     this.speaking = true;
+    const audio = await item.audio;
+    if (this.cancelled) return;
     if (!this.firstFired) {
       this.firstFired = true;
       this.opts.onFirstSentence?.();
     }
-
-    const audio = await item.audio;
-    if (this.cancelled) return;
 
     if (!audio) {
       // Edge-TTS unreachable for this sentence (after retries). Fall back

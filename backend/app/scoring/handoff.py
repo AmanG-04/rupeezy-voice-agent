@@ -8,11 +8,13 @@ Logic split:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 from app.agent.conversation import Conversation
 from app.scoring.classifier import classify_conversation
+from app.scoring.evidence import extract_evidence
 from app.scoring.schemas import (
     CallMeta,
     Classification,
@@ -79,11 +81,8 @@ def choose_next_action(
     # Two ways to detect a hard rejection:
     #   1. classifier flagged `think_about_it` as `resolved=false` after lead ended
     #   2. rationale/summary contains a hard-rejection phrase ("remove my number" etc.)
-    hard_reject_via_objection = ended_by == "lead" and any(
-        o.id == "think_about_it" and o.resolved == "false" for o in objections
-    )
     hard_reject_via_text = _has_hard_rejection(rationale, summary)
-    hard_reject = hard_reject_via_objection or hard_reject_via_text
+    hard_reject = hard_reject_via_text
 
     bucket = classification.bucket
 
@@ -126,7 +125,10 @@ async def build_handoff(
         unresolved,
         summary_short,
         language_used,
-    ) = await classify_conversation(messages=messages)
+    ) = await classify_conversation(
+        messages=messages,
+        business_name="custom" if conversation.settings.custom else "Rupeezy",
+    )
 
     next_action = choose_next_action(
         classification=classification,
@@ -135,6 +137,26 @@ async def build_handoff(
         rationale=classification.rationale,
         summary=summary_short,
     )
+    from app.agent.opt_out import is_opt_out
+    from app.db.repo import get_lead, mark_lead_dnd
+
+    if contact is None and conversation.lead_id:
+        lead = await asyncio.to_thread(get_lead, conversation.lead_id)
+        if lead:
+            contact = Contact(name=lead.name or "Unknown", phone=lead.phone or "",
+                              language_used=language_used)
+    explicit_opt_out = any(is_opt_out(m["text"]) for m in messages if m["role"] == "user")
+    # Generated summaries cannot create a durable opt-out by themselves.
+    if next_action.type == "dnd" and not explicit_opt_out:
+        next_action = NextAction(type={
+            "hot": "warm_transfer",
+            "warm": "whatsapp_link_sent",
+            "cold": "nurture_sequence",
+        }[classification.bucket])
+    if explicit_opt_out:
+        next_action = NextAction(type="dnd")
+        if conversation.lead_id:
+            await asyncio.to_thread(mark_lead_dnd, conversation.lead_id)
 
     call_meta = CallMeta(
         started_at=conversation.started_at,
@@ -148,7 +170,9 @@ async def build_handoff(
     )
 
     return HandoffRecord(
-        lead_id=conversation.conv_id,  # in Phase 4, real lead_id from DB
+        lead_id=conversation.lead_id or conversation.conv_id,
+        conversation_id=conversation.conv_id,
+        evidence=extract_evidence(messages, discovery),
         contact=contact or Contact(language_used=language_used),
         call=call_meta,
         classification=classification,
